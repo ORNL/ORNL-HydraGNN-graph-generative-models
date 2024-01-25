@@ -1,0 +1,9 @@
+click==8.0.0
+pickle5
+matplotlib
+torch==1.13
+ase
+tqdm
+tensorboard
+psutil
+sympy

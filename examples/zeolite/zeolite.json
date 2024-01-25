@@ -1,0 +1,63 @@
+{
+    "Verbosity": {
+        "level": 1
+    },
+    "Dataset": {
+        "name": "zeolite",
+        "path": {"total": "~/proj/data/zeolite_train"},
+        "format": "torch_geometric",
+        "compositional_stratified_splitting": false,
+        "rotational_invariance": false,
+        "node_features": {
+            "name": ["atomic_identity", "time", "pos"],
+            "dim": [1, 1, 3],
+            "column_index": [0, 1, 2]
+        }
+    },
+    "NeuralNetwork": {
+        "Architecture": {
+            "model_type": "EGNN",
+            "radius": 1000,
+            "max_neighbours": 500,
+            "periodic_boundary_conditions": false,
+            "hidden_dim": 32,
+            "num_conv_layers": 4,
+            "equivariance": true,
+            "output_heads": {
+                "node": {
+                    "num_headlayers": 2,
+                    "dim_headlayers": [50,25],
+                    "type": "mlp"
+                }
+            },
+            "task_weights": [1.0, 1.0, 1.0]
+        },
+        "Variables_of_interest": {
+            "input_node_features": [0, 1],
+            "output_names": ["atomic_identity", "time", "pos"],
+            "output_index": [0, 1, 2],
+            "output_dim": [1, 1, 3],
+            "type": ["node", "node", "pos"],
+            "denormalize_output": false,
+            "dynamic_target": true
+        },
+        "Training": {
+            "num_epoch": 10,
+            "EarlyStopping": true,
+            "perc_train": 0.7,
+            "loss_function_type": "mse",
+            "batch_size": 64,
+            "continue": 0,
+            "startfrom": "existing_model",
+            "Optimizer": {
+                "type": "AdamW",
+                "learning_rate": 1e-5
+            }
+        }
+    },
+    "Visualization": {
+        "plot_init_solution": false,
+        "plot_hist_solution": false,
+        "create_plots": false
+    }
+}

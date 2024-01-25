@@ -1,0 +1,32 @@
+0: Distributed data parallel: nccl master at 127.0.0.1:8889
+INFO (rank 0): trainset,valset,testset size: 22199 4757 4757
+0: Using GPU
+0: Using GPU
+0: Epoch: 00, Train Loss: 648303.00000000, Val Loss: 2556979.00000000, Test Loss: 2154.41088867
+0: Tasks Loss: [1598955.5, 345951.78125, 1.3143624067306519]
+0: Epoch: 01, Train Loss: 23810.55468750, Val Loss: 786253.87500000, Test Loss: 1405.98413086
+0: Tasks Loss: [32483.630859375, 38946.71484375, 1.3108731508255005]
+0: Epoch: 02, Train Loss: 10341.11328125, Val Loss: 354792.18750000, Test Loss: 1288.43347168
+0: Tasks Loss: [16134.1650390625, 14887.9091796875, 1.2751439809799194]
+0: Epoch: 03, Train Loss: 5646.21191406, Val Loss: 244685.62500000, Test Loss: 1192.59082031
+0: Tasks Loss: [8960.6787109375, 7976.701171875, 1.2590805292129517]
+0: Epoch: 04, Train Loss: 4823.04394531, Val Loss: 261770.96875000, Test Loss: 1095.05993652
+0: Tasks Loss: [7668.90234375, 6798.98193359375, 1.2463700771331787]
+0: Epoch: 05, Train Loss: 3628.77050781, Val Loss: 274262.31250000, Test Loss: 1092.65869141
+0: Tasks Loss: [5361.0400390625, 5524.05322265625, 1.2204545736312866]
+0: Epoch: 06, Train Loss: 3440.57275391, Val Loss: 96158.25781250, Test Loss: 1055.66369629
+0: Tasks Loss: [5121.89306640625, 5198.62744140625, 1.200538992881775]
+0: Epoch: 07, Train Loss: 3006.09057617, Val Loss: 107116.91406250, Test Loss: 1026.74121094
+0: Tasks Loss: [4520.0146484375, 4497.06884765625, 1.182258129119873]
+0: Epoch: 08, Train Loss: 2394.36914062, Val Loss: 235779.10937500, Test Loss: 939.14953613
+0: Tasks Loss: [3229.0048828125, 3952.933837890625, 1.172256350517273]
+0: Epoch: 09, Train Loss: 2603.58251953, Val Loss: 92461.24218750, Test Loss: 983.58618164
+0: Tasks Loss: [3982.9619140625, 3826.622314453125, 1.1652673482894897]
+0: Process 0 - Local timer:  train_validate_test  :  2439.36
+0: Process 0 - Local timer:  create_model  :  0.06
+0: Process 0 - Local timer:  load_data  :  0.0
+0: Number of calls to timers: 
+0: {'load_data': 1, 'create_model': 1, 'train_validate_test': 1}
+Logging set up
+Zeolite dataset loaded
+31713 22199 4757 4757
