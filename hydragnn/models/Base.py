@@ -17,6 +17,7 @@ from torch.nn import GaussianNLLLoss
 from hydragnn.utils.model import activation_function_selection, loss_function_selection
 import sys
 from hydragnn.utils.distributed import get_device
+# from torch_gdl.equivariant_diffusion import 
 
 
 class Base(Module):
@@ -291,7 +292,10 @@ class Base(Module):
                 # print("NODE OUT: ", x_node)
             elif type_head == "pos":
                 # print("POS OUT: ", pos)
-                x_node = pos
+                if self.equivariance:
+                    x_node = pos - data.pos # following 3.2 The Dynamics in "Equivariant Diffusion for Molecule Generation in 3D" (Hoogeboom et al 2022)
+                else:
+                    x_node = pos
             else:
                 raise NotImplementedError("Head type {} not recognized".format(type_head))
             outputs.append(x_node)
@@ -408,3 +412,17 @@ class MLPNode(Module):
 
     def __str__(self):
         return "MLPNode"
+
+
+                    # # From Base.forward()
+                    # # data is Batch object. get num_nodes from each subgraph
+                    # sg_num_nodes = [d.num_nodes for d in data.to_data_list()]
+                    # # calculate the means from the nodes
+                    # x_node_sg_means = torch.zeros_like(x_node)
+                    # place = 0
+                    # for sgnn in sg_num_nodes:
+                    #     x_node_sg_mean = x_node[place:place+sgnn].mean(dim=0, keepdim=True)
+                    #     x_node_sg_means[place:place+sgnn] = x_node_sg_mean.tile((sgnn, 1))
+                    #     place += sgnn
+                    # # use n_nodes to reshape x_node for center of gravity subtraction
+                    # x_node = x_node - x_node_sg_means

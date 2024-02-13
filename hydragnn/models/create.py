@@ -97,7 +97,6 @@ def create_model(
     num_filters: int = None,
     radius: float = None,
     equivariance: bool = False,
-    pos_output_index: int = None,
     verbosity: int = 0,
     use_gpu: bool = True,
 ):
