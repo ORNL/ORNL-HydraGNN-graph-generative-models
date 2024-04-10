@@ -2,7 +2,7 @@ import os, json
 
 import torch
 import torch_geometric
-from torch_geometric.data import Data
+from torch_geometric.data import Data, Batch
 # deprecated in torch_geometric 2.0
 try:
     from torch_geometric.loader import DataLoader
@@ -10,9 +10,24 @@ except:
     from torch_geometric.data import DataLoader
 
 import hydragnn
-from torch_gdl import EquivariantDiffusionProcess, DiffusionProcess
+from torch_gdl import EquivariantDiffusionProcess, DiffusionProcess, utils as gdl_utils
 import random
 from argparse import ArgumentParser
+
+import numpy as np
+
+ 
+
+def write_pdb_file(data, output_file):
+    atom_map = [1, 6, 7, 8, 9] # HCONF
+    x_argmax = torch.argmax(data.x, dim=1).cpu().numpy()
+
+    with open(output_file, 'w') as f:
+        for i in range(len(data.pos)):
+            atom_type = atom_map[x_argmax[i]]
+            pos = data.pos[i].cpu().numpy()
+            f.write(f"ATOM  {i+1:5}  {atom_type:2}    MOL     1       {pos[0]:.3f}  {pos[1]:.3f}  {pos[2]:.3f}  1.00  0.00\n")
+        f.write("END")
 
 def atomic_num_to_one_hot(atom_idents: torch.Tensor) -> torch.Tensor:
     # expect 1-D tensor
@@ -26,31 +41,21 @@ def atomic_num_to_one_hot(atom_idents: torch.Tensor) -> torch.Tensor:
     
     return torch.nn.functional.one_hot(atom_idents, 5)
 
-def fc_edge_index(n_nodes: int) -> torch.Tensor:
-    assert isinstance(n_nodes, int)
-    if n_nodes <= 0:
-        raise ValueError("n_nodes must be positive int")
-    n_edges = n_nodes * (n_nodes - 1)
-    edge_index = torch.empty((2, n_edges), dtype=torch.long)
-    c = 0
-    for i in range(n_nodes):
-        for j in range(n_nodes):
-            if i != j:
-                edge_index[0][c] = i
-                edge_index[1][c] = j
-                c += 1
-    return edge_index
-
 def qm9_pre_transform(data: Data):
     # create a fully connected graph. retain the previous edge_index
     data.edge_index_old = data.edge_index
-    data.edge_index = fc_edge_index(data.num_nodes)
+    data.edge_index = gdl_utils.fc_edge_index(data.num_nodes)
 
     # Set descriptor as element type. ONE HOT
     data.x = atomic_num_to_one_hot(data.z.long()).float() # ONE HOT
     return data
 
-
+def insert_t(data: Data, t: int, T: int):
+    data_ins = data.clone().detach_()
+    # concatenate node features and time
+    time_vec = torch.ones((data_ins.num_nodes, 1), device=data_ins.x.device) * t / (T - 1.)
+    data_ins.x = torch.hstack([data_ins.x, time_vec]) # n_nodes, 6
+    return data_ins, time_vec
 
 def qm9_pre_filter(data):
     return data.idx < num_samples
@@ -62,13 +67,11 @@ def get_train_transform(dp: DiffusionProcess, head_types: list, out_indices: lis
         data.t = 0 # default
         
         # randomly sample a t
-        t = random.randint(1, dp.timesteps-1)
+        t = random.randint(0, dp.timesteps-1)
 
         data = dp.forward_process_sample(data, t) # should be attaching t to node features
 
-        # concatenate node features and time
-        time_vec = torch.ones((data.num_nodes, 1), device=data.x.device) * t / (dp.timesteps - 1.)
-        data.x = torch.hstack([data.x, time_vec]) # n_nodes, 2
+        data, time_vec = insert_t(data, data.t, dp.timesteps)
 
         # set y to the expected shape for HydraGNN. create a hack for noise data by creating a new data with noise in .x and .pos
         x_targ = torch.hstack([data.yx, time_vec])
@@ -85,11 +88,16 @@ def get_train_transform(dp: DiffusionProcess, head_types: list, out_indices: lis
     return train_transform
 
 
+
 if __name__ == "__main__":
 
-    # parser = ArgumentParser()
+    parser = ArgumentParser()
 
-    # parser.add_argument("--lr", type=float, default=1e-5)
+    parser.add_argument("--train", action="store_true")
+    parser.add_argument("--n_gen", type=int, default=100)
+    parser.add_argument("--diffusion_steps", type=int, default=100)
+
+    args = parser.parse_args()
 
     # Set this path for output.
     try:
@@ -119,7 +127,7 @@ if __name__ == "__main__":
     # Filter function above used to run quick example.
     # NOTE: data is moved to the device in the pre-transform.
     # NOTE: transforms/filters will NOT be re-run unless the qm9/processed/ directory is removed.
-    dp = EquivariantDiffusionProcess(100)
+    dp = EquivariantDiffusionProcess(args.diffusion_steps)
     train_tform = get_train_transform(dp, voi["type"], voi["output_index"], [], voi["output_dim"])
     dataset = torch_geometric.datasets.QM9(
         root="dataset/qm9", pre_transform=qm9_pre_transform, pre_filter=qm9_pre_filter, transform=train_tform
@@ -164,15 +172,46 @@ if __name__ == "__main__":
     writer = hydragnn.utils.get_summary_writer(log_name)
     hydragnn.utils.save_config(config, log_name)
 
-    hydragnn.train.train_validate_test(
-        model,
-        optimizer,
-        train_loader,
-        val_loader,
-        test_loader,
-        writer,
-        scheduler,
-        config["NeuralNetwork"],
-        log_name,
-        verbosity,
-    )
+    if args.train:
+        hydragnn.train.train_validate_test(
+            model,
+            optimizer,
+            train_loader,
+            val_loader,
+            test_loader,
+            writer,
+            scheduler,
+            config["NeuralNetwork"],
+            log_name,
+            verbosity,
+        )
+
+    if args.n_gen > 0:
+        # load in HydraGNN model
+        hydragnn.utils.model.load_existing_model(model, 'qm9_test')
+        device = hydragnn.utils.get_device()
+        # generate structures and put in .pdb
+
+        def pred_fn(data: Data) -> Data:
+            data_tx, _ = insert_t(data, data.t, dp.timesteps)
+            out = model(data_tx)
+            atom_ident_noise, atom_pos_noise = out[0], out[2]
+            noise_data = data.clone().detach_()
+            noise_data.x = atom_ident_noise
+            noise_data.pos = atom_pos_noise
+            return noise_data
+        
+        prior_dist_state = dp.prior_dist(torch.randint(5, 20, (args.n_gen,)), 5, 3).to(device)
+        # [print(pds) for pds in prior_dist_state.to_data_list()]
+        prior_samples = dp.sample_from_dist(prior_dist_state)
+        gen_data = dp.reverse_process_sample(prior_samples, pred_fn)
+
+        print("############# GEN DATA ################")
+        gen_data_list = gen_data.to_data_list()
+
+        for i, gd in enumerate(gen_data_list):
+            # postprocess by subtracting off CoM
+            gd.pos = gd.pos - gd.pos.mean(dim=0, keepdim=True)
+            filename = './structures/gen_{}.pdb'.format(i)
+            write_pdb_file(gd, filename)
+

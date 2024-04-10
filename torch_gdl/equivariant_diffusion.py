@@ -1,11 +1,12 @@
 import torch
 from torch import Tensor
-from torch_geometric.data import Data
-from typing import Optional, Callable, Tuple
+from torch_geometric.data import Data, Batch
+from typing import Optional, Callable, Union
 import numpy as np
 from .diffusion import DiffusionProcess
+from .utils import fc_edge_index
 
-def center_of_gravity(x: Tensor) -> Tensor:
+def center_gravity(x: Tensor) -> Tensor:
     x = x - x.mean(dim=0, keepdim=True) # average along the sequence
     return x
 
@@ -25,7 +26,7 @@ def clip_noise_schedule(alphas2, clip_value=0.001):
 
     return alphas2
 
-def polynomial_schedule(timesteps: int, s=1e-4, power=3.):
+def polynomial_schedule(timesteps: int, s=1e-4, power=1.):
     """
     A noise schedule based on a simple polynomial equation: 1 - x^power.
     """
@@ -76,7 +77,7 @@ class EquivariantDiffusionProcess(DiffusionProcess):
     def __init__(self, timesteps: int, alphas: Optional[Tensor] = None):
         super().__init__(timesteps)
         if alphas is None:
-            alphas = polynomial_schedule(timesteps) # default schedule
+            alphas = polynomial_schedule(timesteps, power=1.) # default schedule
         self.alphas = alphas
 
     def snr_t(self, t: int):
@@ -109,16 +110,55 @@ class EquivariantDiffusionProcess(DiffusionProcess):
         pos_mu = dist_state['pos_mu']
         pos_sigma = dist_state['pos_sigma']
         t = dist_state['t']
+
         # sample noise from the distribution
         x_noise = torch.randn_like(x_mu)
-        pos_noise = center_of_gravity(torch.randn_like(pos_mu)) # subtract center of gravity for position information
+        pos_noise = center_gravity(torch.randn_like(pos_mu)) # subtract center of gravity for position information
         
         x_samples = x_mu + x_noise*x_sigma
         pos_samples = pos_mu + pos_noise*pos_sigma
 
         # create a new data entry with samples, set y to preds
-        data = Data(x=x_samples, pos=pos_samples, yx=x_noise, ypos=pos_noise, t=t, edge_index=dist_state.edge_index)
+        data = dist_state.clone().detach_()
+        data.x = x_samples
+        data.pos = pos_samples
+        data.yx = x_noise
+        data.ypos = pos_noise
+        data.t = t
+        data.x_mu = None
+        data.x_sigma = None
+        data.pos_mu = None
+        data.pos_sigma = None
+
         return data
+
+    def prior_dist(self, state_dims: Union[torch.Tensor, int], x_dim: int, pos_dim: int) -> Data:
+
+        if isinstance(state_dims, int):
+            assert state_dims > 0
+            state_dims = torch.Tensor([state_dims], dtype=torch.int)
+
+        assert isinstance(state_dims, torch.Tensor) and state_dims.dim() == 1
+        assert state_dims.dtype in [torch.int, torch.long]
+
+        batch = []
+        for d in state_dims:
+            d = d.item()
+            batch.append(
+                Data(
+                    x_mu=torch.zeros((d, x_dim), device=state_dims.device),
+                    x_sigma=torch.ones((d, x_dim), device=state_dims.device),
+                    edge_index=fc_edge_index(d).to(state_dims.device),
+                    pos_mu=torch.zeros((d, pos_dim), device=state_dims.device),
+                    pos_sigma=torch.ones((d, pos_dim), device=state_dims.device),
+                    num_nodes=d,
+                    x=torch.zeros((d, x_dim), device=state_dims.device), # include these as a hack w/ Batch.from_data_list()
+                    pos=torch.zeros((d, x_dim), device=state_dims.device)   # need for the eventual batch.to_data_list() call
+                )
+            )
+        batch = Batch.from_data_list(batch)
+        batch.t = self.timesteps - 1
+        return batch
 
 
     def forward_process_dist(self, state: Data, t: int) -> Data:
@@ -131,7 +171,15 @@ class EquivariantDiffusionProcess(DiffusionProcess):
         xpos_sigma = (sigma_t2 - (alpha_ts**2)*sigma_s2)**0.5
         x_sigma_t, pos_sigma_t = xpos_sigma, xpos_sigma
 
-        dist_state = Data(x_mu=x_mu_t, pos_mu = pos_mu_t, x_sigma=x_sigma_t, pos_sigma=pos_sigma_t, t=t, edge_index=state.edge_index)
+        ## replace
+        dist_state = state.clone().detach_()
+        dist_state.x_mu = x_mu_t
+        dist_state.pos_mu = pos_mu_t
+        dist_state.x_sigma = x_sigma_t
+        dist_state.pos_sigma = pos_sigma_t
+        dist_state.pos = None
+        dist_state.x = None
+
         return dist_state
 
         
@@ -148,8 +196,8 @@ class EquivariantDiffusionProcess(DiffusionProcess):
             Data: denoised sample provided by the denoising process distribution
         """
         t, s = state.t, state.t - 1
-        noise_state = pred_fn(state) # subtract positional center of mass to maintain equivariance
-        noise_state.pos = noise_state.pos - noise_state.pos.mean(dim=0, keepdim=True)
+        noise_state = pred_fn(state) # pred_fn should subtract positional center of mass to maintain equivariance
+        # noise_state.pos = center_gravity(noise_state.pos)
 
         # create dist_state and decrement t
         alpha_ts = self.alphas[t]/self.alphas[s]
@@ -163,24 +211,14 @@ class EquivariantDiffusionProcess(DiffusionProcess):
         x_sigma_s = (var_ts*var_s/var_t)**0.5
         pos_sigma_s = (var_ts*var_s/var_t)**0.5
 
-        dist_state = Data(x_mu=x_mu_s, pos_mu=pos_mu_s, x_sigma=x_sigma_s, pos_sigma=pos_sigma_s, t=s, edge_index=state.edge_index)
+        dist_state = state.clone().detach_()
+        dist_state.x_mu = x_mu_s
+        dist_state.pos_mu = pos_mu_s
+        dist_state.x_sigma = x_sigma_s
+        dist_state.pos_sigma = pos_sigma_s
+        dist_state.t = s
+        dist_state.x = None
+        dist_state.pos = None
 
         return dist_state
-
-    def get_loss_fn(self, state: Data): # roughly the "loss" function of HydraGNN
-
-        targ_feat = torch.hstack([state.ypos, state.yx])
-        t = state.t
-
-        # weight according to time
-        w_t = 1. # - self.snr_t(t-1)/self.snr_t(t)
-        
-        def loss_fn(pred: torch.Tensor):
-            # hstack the features
-           #  pred_feat = torch.hstack([pred.pos, pred.x])
-            feat_loss = (targ_feat - pred).square().mean()
-            return w_t * feat_loss
-
-
-        return loss_fn
 

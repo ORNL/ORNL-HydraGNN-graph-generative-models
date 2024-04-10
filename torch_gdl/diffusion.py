@@ -22,12 +22,13 @@ class DiffusionProcess:
     def check_state(self, state: Data):
         assert isinstance(state, Data)
 
-    def sample_prior(self, samples_shape: torch.Size) -> Data:
+    def prior_dist(self, state_dims: torch.Tensor) -> Data:
         """
-        Sample from the prior distribution. This could potentially be combined with sample_from_dist
+        Distribution state for the prior. state_dims specifies
+        May be combined with sample_from_dist
 
         Args:
-        sample_prior (torch.Size): shape of samples to be created
+        sample_prior (torch.Tensor): amount of state to allocate for each sample 
         """
         pass
 
@@ -73,7 +74,11 @@ class DiffusionProcess:
         return samples
 
 
-    def reverse_process_sample(self, state: Data, pred_fn: Callable[[Data,], Data]) -> Data:
+    def reverse_process_sample(self,
+            state: Data, pred_fn: Callable[[Data,], Data],
+            pre_hook: Callable[[Data,], Data] = None,
+            post_hook: Callable[[Data,], Data] = None
+        ) -> Data:
         """
         Predict z_t|z_T. Starting from a sample from p(z_T), compute the reverse by iteratively calling reverse_step
 
@@ -84,12 +89,18 @@ class DiffusionProcess:
         # iterate through time in reverse, calling reverse_pred to yield dist_state
         # then sample using dist_state to construct the generative diffusion process
         # reversed_tsteps = reversed(range(self.timesteps))
-        next_state = state.clone()
-        for _ in range(self.timesteps):
-            dist_state = self.reverse_pred(next_state, pred_fn)
-            dist_samples = self.sample_from_dist(dist_state)
-            next_state = dist_samples
-        return next_state
+        with torch.no_grad():
+            next_state = state.clone()
+            for t in reversed(range(1, self.timesteps)):
+                next_state.t = t
+                if pre_hook is not None:
+                    next_state = pre_hook(next_state)
+                dist_state = self.reverse_pred(next_state, pred_fn)
+                dist_samples = self.sample_from_dist(dist_state)
+                next_state = dist_samples
+                if post_hook is not None:
+                    next_state = post_hook(next_state)
+            return next_state
 
     def reverse_pred(self, state: Data, pred_fn: Callable[[Data,], Data]) -> Data:
         """
