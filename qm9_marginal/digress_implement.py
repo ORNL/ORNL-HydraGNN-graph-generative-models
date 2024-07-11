@@ -38,7 +38,6 @@ plt.title("Marginal Distribution of Atom Types in QM9 Dataset")
 plt.show()
 
 # %% Define parameters and class for the noise model
-
 # Set random seed for reproducibility
 # torch.manual_seed(42) # Can remove later
 
@@ -74,12 +73,16 @@ class NoiseModel():
         Parameters:
         t : int
             Time step
+        type : str
+            Type of noise schedule to use. Options are 'cos' and 'linear' (default is 'cos')
         """
         # Compute alpha_bar and beta_bar
         if type == 'cos':
             return np.cos(np.pi/2 * (t/(self.T+self.eps))/ (1 + self.eps)) ** 2
-        else:
+        elif type == 'linear':
             return torch.prod(torch.pow(self.alpha, torch.arange(t)+1))
+        else:
+            raise ValueError("Noise schedule type not supported. Please choose 'cos' or 'linear'")
     
     def marginalQ(self, t):
         """
@@ -110,7 +113,7 @@ class NoiseModel():
         -----------------------------------
         Parameters:
         t : int
-            Time step
+            (Optional) Time step. If not provided, randomly sample a time step t from a uniform distribution ranging from 0 to T
         """
         # If None, randomly sample a time step t from a uniform distribution ranging from 0 to T
         if t is None:
@@ -141,7 +144,6 @@ class NoiseModel():
             # Compute the noised input at time t
             self.snr_t(t+1)
             # Append the noised input to the list
-            # self.noised_mols.append(self.molecule.argmax()) #Change to this later: self.molecule.argmax(dim=1).reshape(-1, 1)
             self.noised_mols.append(self.molecule.argmax(dim=1).reshape(-1, 1))
 
 # %% Create class instatiation and plot the trajectory of noised inputs
