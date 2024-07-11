@@ -17,7 +17,6 @@ from argparse import ArgumentParser
 import numpy as np
 
  
-
 def write_pdb_file(data, output_file):
     atom_map = [1, 6, 7, 8, 9] # HCONF
     x_argmax = torch.argmax(data.x, dim=1).cpu().numpy()
