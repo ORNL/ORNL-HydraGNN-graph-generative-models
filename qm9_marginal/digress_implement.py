@@ -16,7 +16,6 @@ total_atom_types = dataset.x[:, :5].sum(dim=0)
 
 # Normalize the distribution
 marginal_distribution = total_atom_types / total_atom_types.sum()
-# dist_4_plotting = torch.round(marginal_distribution, decimals=2)
 
 # %% Plot the marginal distribution as a bar plot
 # Create figure and plot
@@ -148,7 +147,8 @@ class NoiseModel():
 
 # %% Create class instatiation and plot the trajectory of noised inputs
 # Define number of atoms in molecule
-num_atoms = 8
+num_atoms = 1000
+# marginal_distribution = torch.tensor([0.5, 0.5])
 # Instantiate the NoiseModel class
 noise_model = NoiseModel(
     alpha=0.9, 
@@ -181,5 +181,25 @@ ax[0].set_ylabel("Atom Type")
 ax[1].set_title(r"$\alpha_{bar}$ and $\beta_{bar}$ over time")
 ax[1].legend()
 ax[1].set_xlabel("Time")
+
+# %% Plot marginal distribution of atom types after noising and compare with original marginal distribution
+# Sum the atom types to get the marginal distribution
+noised_total_atoms = noise_model.molecule.sum(dim=0)
+
+# Normalize the distribution
+noised_marginal_distribution = noised_total_atoms / noised_total_atoms.sum()
+
+# Plot the marginal distribution as a bar plot
+# Create figure and plot
+fig = plt.figure()
+plt.bar(range(5), marginal_distribution, alpha=0.5, label="Original")
+plt.bar(range(5), noised_marginal_distribution, alpha=0.5, label="Noised")
+plt.legend(loc="upper right")
+
+# Add labels and title
+plt.xlabel("Atom Type")
+plt.ylabel("Frequency (%)")
+plt.title("Marginal Distribution of Atom Types in QM9 Dataset (Pre and Post Noising)")
+plt.show()
 
 # %%
