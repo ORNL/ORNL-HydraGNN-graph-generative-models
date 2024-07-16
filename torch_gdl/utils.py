@@ -29,6 +29,9 @@ def create_noise_schedule(
         ------------
         type : str
             Type of noise schedule. Default is 'cos'
+        alpha : float
+            Alpha value for linear noise schedule. Only
+            needed if type is 'linear'.
         s : float
             Small value to avoid division by zero
         """
@@ -43,3 +46,5 @@ def create_noise_schedule(
             assert alpha is not None, "alpha must be provided for linear noise schedule"
             # Return tensor of linear noise schedule
             return torch.cumprod(torch.pow(alpha, t), dim=0)
+        else:
+            raise ValueError("Noise schedule type not supported. Please choose 'cos' or 'linear'")
