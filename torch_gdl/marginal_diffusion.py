@@ -4,10 +4,12 @@ import torch.nn.functional as F
 import numpy as np
 
 from torch import Tensor
-from torch_geometric.data import Data
-from typing import Optional, Callable, Union
-from torch_gdl.equivariant_diffusion import EquivariantDiffusionProcess, center_gravity
-from torch_gdl.utils import create_noise_schedule
+from torch_geometric.data import Data, Batch
+from typing import Optional, Callable
+from torch_gdl.equivariant_diffusion import \
+    EquivariantDiffusionProcess, center_gravity
+from torch_gdl.utils import create_noise_schedule, \
+    fc_edge_index
 
 # Define global functions
 def sample_atoms(noised_atoms: torch.Tensor, state_dim: int):
@@ -31,6 +33,19 @@ def sample_atoms(noised_atoms: torch.Tensor, state_dim: int):
             ) for i in range(noised_atoms.shape[0])
         ]
     )
+
+def cast_2d(x: Tensor) -> Tensor:
+    """
+    Casts a 1D tensor of size n to and n x n tensor
+    whose rows are the original tensor.
+
+    Parameters:
+    ------------
+    x : Tensor
+        Input tensor
+    """
+
+    return torch.matmul(torch.ones_like(x), x.T)
 
 class MarginalDiffusionProcess(EquivariantDiffusionProcess):
     """
@@ -105,7 +120,8 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
     
     def marginal_Qt(self, t: int) -> Tensor:
         """
-        Compute transition matrix Q at time t using marginal distribution information (DiGress)
+        Compute transition matrix Q at time t using marginal distribution information
+        (DiGress)
         Parameters:
         ------------
         t : int
@@ -114,7 +130,7 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
         # Calculate Qt from alphas and betas
         return (
             self.alphas[t] * torch.eye(self.state_dim) + 
-            self.betas[t] * (torch.ones_like(self.marg_dist) * self.marg_dist.T)
+            self.betas[t] * cast_2d(self.marg_dist)
         )
     
     def gaussian_noising(self, pos: Tensor, t: int) -> tuple:
@@ -140,7 +156,8 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
     
     def forward_process_dist(self, state: Data, t: Tensor) -> Data:
         """
-        Starting from state, compute the result of the forward process up to time t. (i.e., z_t|x)
+        Starting from state, compute the result of the forward process up to time t.
+        (i.e., z_t|x)
 
         Args:
             state (Data): initial configuration of x. assume t=0 here
@@ -202,3 +219,82 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
         data.pos_sigma = None
 
         return data
+    
+    def prior_dist(self, state_dims: Tensor | int, x_dim: int, pos_dim: int) -> Data:
+        """
+        Distribution to sample from in order to generate new samples. Differs
+        between atom type (marginal) and position information (Gaussian).
+
+        Parameters:
+        ------------
+        state_dims : Tensor | int
+            Number of samples to generate
+        x_dim : int
+            Atom type dimension
+        pos_dim : int
+            Position dimension
+        """
+        if isinstance(state_dims, int):
+            assert state_dims > 0
+            state_dims = torch.Tensor([state_dims], dtype=torch.int)
+
+        assert isinstance(state_dims, torch.Tensor) and state_dims.dim() == 1
+        assert state_dims.dtype in [torch.int, torch.long]
+
+        batch = []
+        for d in state_dims:
+            d = d.item()
+            batch.append(
+                Data(
+                    x_probs = cast_2d(self.marg_dist).to(state_dims.device),
+                    edge_index=fc_edge_index(d).to(state_dims.device),
+                    pos_mu=torch.zeros((d, pos_dim), device=state_dims.device),
+                    pos_sigma=torch.ones((d, pos_dim), device=state_dims.device),
+                    num_nodes=d,
+                    x=torch.zeros((d, x_dim), device=state_dims.device), # include these as a hack w/ Batch.from_data_list()
+                    pos=torch.zeros((d, x_dim), device=state_dims.device)   # need for the eventual batch.to_data_list() call
+                )
+            )
+        batch = Batch.from_data_list(batch)
+        batch.t = self.timesteps - 1
+        return batch
+    
+    def reverse_pred(self, state: Data, pred_fn: Callable[[Data,], Data]) -> Data:
+        """
+        Given noisy state with associated time t, use pred_fn to parameterize the (normalized) 
+        Gaussian noise and "remove" noise from state. Return new state with updated time t according 
+        to the reverse diffusion process
+
+        Parameters:
+        ------------
+        state (Data): 
+            state describing the noisy graph object
+        pred_fn (Callable): 
+            function wrapping a call to the diffusion model. 
+            should take a Data and return a Data parameterizing the mean
+        
+        Returns:
+            Data: denoised sample provided by the denoising process distribution
+        """
+        t, s = state.t, state.t - 1
+        noise_state = pred_fn(state) # pred_fn should subtract positional center of mass to maintain equivariance
+
+        # Denoise position parameters
+        alpha_ts = self.alphas[t]/self.alphas[s]
+        var_t = 1. - self.alphas[t]**2
+        var_s = 1. - self.alphas[s]**2
+        var_ts = var_t - (alpha_ts**2)*var_s
+
+        pos_mu_s = state.pos/alpha_ts - (var_ts/(alpha_ts*(var_t**0.5)))*noise_state.pos
+        pos_sigma_s = (var_ts*var_s/var_t)**0.5
+
+        # create dist_state and decrement t
+        dist_state = state.clone().detach_()
+        dist_state.x_probs = noise_state.x_probs
+        dist_state.pos_mu = pos_mu_s
+        dist_state.pos_sigma = pos_sigma_s
+        dist_state.t = s
+        dist_state.pos = None
+        dist_state.x = None
+
+        return dist_state
