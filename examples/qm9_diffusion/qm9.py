@@ -47,6 +47,7 @@ def qm9_pre_transform(data: Data):
 
     # Set descriptor as element type. ONE HOT
     data.x = atomic_num_to_one_hot(data.z.long()).float() # ONE HOT
+    # data.x = data.x[:, :5].float() # CHONF
     return data
 
 def insert_t(data: Data, t: int, T: int):
@@ -129,22 +130,22 @@ if __name__ == "__main__":
     dp = EquivariantDiffusionProcess(args.diffusion_steps)
     train_tform = get_train_transform(dp, voi["type"], voi["output_index"], [], voi["output_dim"])
     dataset = torch_geometric.datasets.QM9(
-        root="dataset/qm9", pre_transform=qm9_pre_transform, pre_filter=qm9_pre_filter, transform=train_tform
-    )
+        root="dataset/qm9", pre_transform=qm9_pre_transform, pre_filter=qm9_pre_filter, transform=train_tform)
+    
+    # datum = dataset[0]
+    # datum = deepcopy(dataset)[0]
+    # print("X: ", datum.x)
+    # print("EDGE: ", datum.edge_index)
 
-    datum = dataset[0]
-    print("X: ", datum.x)
-    print("EDGE: ", datum.edge_index)
-
-    print("---------Diffused Version---------")
-    datum = train_tform(datum)
-    print("Time: ", datum.t)
-    print("X: ", datum.x)
-    print("EDGE: ", datum.edge_index)
-    print("Y: ", datum.y)
-    print("POS: ", datum.pos)
-    print("YPOS: ", datum.ypos)
-    print("Y_shape: ", datum.y.shape)
+    # print("---------Diffused Version---------")
+    # datum = train_tform(datum)
+    # print("Time: ", datum.t)
+    # print("X: ", datum.x)
+    # print("EDGE: ", datum.edge_index)
+    # print("Y: ", datum.y)
+    # print("POS: ", datum.pos)
+    # print("YPOS: ", datum.ypos)
+    # print("Y_shape: ", datum.y.shape)
 
     train, val, test = hydragnn.preprocess.split_dataset(
         dataset, config["NeuralNetwork"]["Training"]["perc_train"], False

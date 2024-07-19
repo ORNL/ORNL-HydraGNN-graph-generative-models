@@ -177,6 +177,7 @@ class EquivariantDiffusionProcess(DiffusionProcess):
         dist_state.pos_mu = pos_mu_t
         dist_state.x_sigma = x_sigma_t
         dist_state.pos_sigma = pos_sigma_t
+        dist_state.t = t
         dist_state.pos = None
         dist_state.x = None
 
