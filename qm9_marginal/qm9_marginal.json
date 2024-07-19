@@ -1,0 +1,55 @@
+{
+    "Verbosity": {
+        "level": 2
+    },
+    "NeuralNetwork": {
+        "Profile": {"enable": 1},
+        "Architecture": {
+            "model_type": "HybridEGNN",
+            "radius": 1000,
+            "max_neighbours": 500,
+            "periodic_boundary_conditions": false,
+            "hidden_dim": 2048,
+            "num_conv_layers": 4,
+            "equivariance": true,
+            "activation_function": "silu",
+            "output_heads": {
+                "node": {
+                    "num_headlayers": 2,
+                    "dim_headlayers": [128,64],
+                    "type": "mlp"
+                }
+            },
+            "task_weights": [1.0, 1.0]
+        },
+        "Variables_of_interest": {
+            "input_node_features": [0, 1, 2, 3, 4, 5],
+            "output_names": ["atomic_identity", "pos"],
+            "output_index": [0, 1],
+            "output_dim": [5, 3],
+            "type": ["node", "pos"],
+            "denormalize_output": false,
+            "dynamic_target": true
+        },
+        "Training": {
+            "num_epoch": 2,
+            "EarlyStopping": false,
+            "Checkpoint": true,
+            "checkpoint_warmup": 1,
+            "perc_train": 0.7,
+            "loss_function_type": "mse",
+            "batch_size": 32,
+            "continue": 0,
+            "startfrom": "existing_model",
+            "Optimizer": {
+                "type": "AdamW",
+                "learning_rate": 1e-5
+            }
+        }
+    },
+    "Visualization": {
+        "plot_init_solution": false,
+        "plot_hist_solution": false,
+        "create_plots": true
+    }
+}

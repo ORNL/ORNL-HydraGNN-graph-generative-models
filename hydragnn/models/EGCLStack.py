@@ -81,7 +81,7 @@ class EGCLStack(Base):
             }
 
         return conv_args
-
+    
     def __str__(self):
         return "EGCLStack"
 

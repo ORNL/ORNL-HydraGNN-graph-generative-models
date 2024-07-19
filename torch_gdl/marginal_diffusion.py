@@ -3,7 +3,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-from torch import Tensor
+from torch import Tensor, Union
 from torch_geometric.data import Data, Batch
 from typing import Optional, Callable
 from torch_gdl.equivariant_diffusion import \
@@ -32,20 +32,22 @@ def sample_atoms(noised_atoms: torch.Tensor, state_dim: int):
                 p=noised_atoms[i, :].numpy().flatten()
             ) for i in range(noised_atoms.shape[0])
         ]
-    )
+    ).to(torch.long)
 
-def cast_2d(x: Tensor) -> Tensor:
+def cast_2d(x: Tensor, dim: int) -> Tensor:
     """
-    Casts a 1D tensor of size n to and n x n tensor
+    Casts a 1D tensor of size n to and dim x n tensor
     whose rows are the original tensor.
 
     Parameters:
     ------------
     x : Tensor
         Input tensor
+    dim : int
+        Number of rows in the output tensor
     """
 
-    return torch.matmul(torch.ones_like(x), x.T)
+    return torch.matmul(torch.ones((dim, 1)), x.T)
 
 class MarginalDiffusionProcess(EquivariantDiffusionProcess):
     """
@@ -130,7 +132,7 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
         # Calculate Qt from alphas and betas
         return (
             self.alphas[t] * torch.eye(self.state_dim) + 
-            self.betas[t] * cast_2d(self.marg_dist)
+            self.betas[t] * cast_2d(self.marg_dist, dim=self.state_dim)
         )
     
     def gaussian_noising(self, pos: Tensor, t: int) -> tuple:
@@ -168,8 +170,8 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
         """
         # Extract atom type and pos from state
         x, pos = state.x, state.pos
-
-        # Noise and sample new atom types (one-hot encodings)
+        
+        # Noise and sample new atom types
         x_probs = self.markov_noising(x, t)
 
         # Noise position and get conditional distribution parameters
@@ -180,6 +182,7 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
         dist_state.x_probs = x_probs
         dist_state.pos_mu = pos_mu_t
         dist_state.pos_sigma = pos_sigma_t
+        dist_state.t = t
         dist_state.pos = None
         dist_state.x = None
 
@@ -207,7 +210,7 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
         # Sample position noise from distribution
         # subtract center of gravity for position information
         pos_noise = center_gravity(torch.randn_like(dist_state['pos_mu']))
-        pos_samples = dist_state['pos_mu'] + dist_state['pos_noise'] * dist_state['pos_sigma']
+        pos_samples = dist_state['pos_mu'] + pos_noise * dist_state['pos_sigma']
 
         # create a new data entry with samples, set y to preds
         data = dist_state.clone().detach_()
@@ -220,7 +223,7 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
 
         return data
     
-    def prior_dist(self, state_dims: Tensor | int, x_dim: int, pos_dim: int) -> Data:
+    def prior_dist(self, state_dims: Union[Tensor, int], x_dim: int, pos_dim: int) -> Data:
         """
         Distribution to sample from in order to generate new samples. Differs
         between atom type (marginal) and position information (Gaussian).
@@ -246,7 +249,7 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
             d = d.item()
             batch.append(
                 Data(
-                    x_probs = cast_2d(self.marg_dist).to(state_dims.device),
+                    x_probs = cast_2d(self.marg_dist, dim=d).to(state_dims.device),
                     edge_index=fc_edge_index(d).to(state_dims.device),
                     pos_mu=torch.zeros((d, pos_dim), device=state_dims.device),
                     pos_sigma=torch.ones((d, pos_dim), device=state_dims.device),
