@@ -239,7 +239,7 @@ if __name__ == "__main__":
         for i, gd in enumerate(gen_data_list):
             # postprocess by subtracting off CoM
             gd.pos = gd.pos - gd.pos.mean(dim=0, keepdim=True)
-            filename = './structures/gen_{}.pdb'.format(i)
+            filename = f'./{default_log_name}/structures/gen_{i}.pdb'
             # check if directory exists, if not create it
             if not os.path.exists("./structures"):
                 os.makedirs("./structures")
