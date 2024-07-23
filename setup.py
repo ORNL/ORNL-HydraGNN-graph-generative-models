@@ -13,10 +13,12 @@ install_requires = [
     "matplotlib",
     "tqdm",
     "tensorboard",
+    "wandb",
     "torch>=1.8",
     "torch-geometric>=1.7.2",
     "torch-scatter",
     "torch-sparse",
+    "rdkit"
 ]
 test_requires = ["black", "pytest", "pytest-mpi"]
 
