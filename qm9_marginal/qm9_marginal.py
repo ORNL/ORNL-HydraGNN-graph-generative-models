@@ -16,18 +16,40 @@ import random
 from argparse import ArgumentParser
 
 import numpy as np
+from rdkit import Chem
 
  
 def write_pdb_file(data, output_file):
-    atom_map = [1, 6, 7, 8, 9] # HCONF
+    atom_map = [1, 6, 7, 8, 9] # HCNOF
+    atom_type = {
+        1: 'H',
+        6: 'C',
+        7: 'N',
+        8: 'O',
+        9: 'F'
+    }
+    # Get atom types
     x_argmax = torch.argmax(data.x, dim=1).cpu().numpy()
+    atoms = [atom_type[atom_map[t]] for t in x_argmax]
+    # Get positions
+    pos = data.pos.cpu().numpy().tolist()
 
-    with open(output_file, 'w') as f:
-        for i in range(len(data.pos)):
-            atom_type = atom_map[x_argmax[i]]
-            pos = data.pos[i].cpu().numpy()
-            f.write(f"ATOM  {i+1:5}  {atom_type:2}    MOL     1       {pos[0]:.3f}  {pos[1]:.3f}  {pos[2]:.3f}  1.00  0.00\n")
-        f.write("END")
+    # Create Empty Mol
+    mol = Chem.RWMol()
+
+    # Add atoms to mol
+    for atom in atoms:
+        mol.AddAtom(Chem.Atom(atom))
+
+    # Add a new conformer. The argument 0 means that it will have 0 atoms, but atoms will be added later.
+    mol.AddConformer(Chem.Conformer(mol.GetNumAtoms()))
+
+    # Add atom positions
+    for i, p in enumerate(pos):
+        mol.GetConformer().SetAtomPosition(i, p)
+
+    # Save molecule to PDB file
+    Chem.MolToPDBFile(mol, output_file)
 
 def atomic_num_to_one_hot(atom_idents: torch.Tensor) -> torch.Tensor:
     # expect 1-D tensor
@@ -115,14 +137,9 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--n_gen", type=int, default=100)
     parser.add_argument("-ds", "--diffusion_steps", type=int, default=100)
     parser.add_argument("-ln", "--log_name", type=str, default=default_log_name)
-    parser.add_argument("-lm", "--load_model", type=str, default=None)
 
-
+    # Store the arguments in args.
     args = parser.parse_args()
-
-    # Raise error if not training and no model is specified to load.
-    if not args.train and args.load_model is None:
-        raise ValueError("Must specify model to load if not training.")
 
     # Set this path for output.
     try:
@@ -212,15 +229,13 @@ if __name__ == "__main__":
 
     if args.n_gen > 0:
         # load in HydraGNN model
-        if args.load_model != None:
-            hydragnn.utils.model.load_existing_model(model, args.load_model)
-        else:
-            hydragnn.utils.model.load_existing_model(model, log_name)
+        hydragnn.utils.model.load_existing_model(model, log_name)
         device = hydragnn.utils.get_device()
         # generate structures and put in .pdb
 
         def pred_fn(data: Data) -> Data:
             data_tx, _ = insert_t(data, data.t, dp.timesteps)
+            model.eval()
             out = model(data_tx)
             atom_ident_noise, atom_pos_noise = out[0], out[1]
             noise_data = data.clone().detach_()
@@ -239,9 +254,9 @@ if __name__ == "__main__":
         for i, gd in enumerate(gen_data_list):
             # postprocess by subtracting off CoM
             gd.pos = gd.pos - gd.pos.mean(dim=0, keepdim=True)
-            filename = f'./{default_log_name}/structures/gen_{i}.pdb'
+            filename = f'./logs/{log_name}/structures/gen_{i}.pdb'
             # check if directory exists, if not create it
-            if not os.path.exists("./structures"):
-                os.makedirs("./structures")
+            if not os.path.exists(f"./logs/{log_name}/structures"):
+                os.makedirs(f"./logs/{log_name}/structures")
             write_pdb_file(gd, filename)
 
