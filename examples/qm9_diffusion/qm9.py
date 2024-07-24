@@ -90,9 +90,12 @@ def get_train_transform(dp: DiffusionProcess, head_types: list, out_indices: lis
         # randomly sample a t
         t = random.randint(0, dp.timesteps-1)
 
+
         data = dp.forward_process_sample(data, t) # should be attaching t to node features
 
+
         data, time_vec = insert_t(data, data.t, dp.timesteps)
+
 
         # set y to the expected shape for HydraGNN. create a hack for noise data by creating a new data with noise in .x and .pos
         x_targ = torch.hstack([data.yx, time_vec])
@@ -139,7 +142,7 @@ if __name__ == "__main__":
     # Always initialize for multi-rank training.
     world_size, world_rank = hydragnn.utils.setup_ddp()
 
-    log_name = args.log_name
+    log_name = 'cont_' + args.log_name
     # Enable print to log file.
     hydragnn.utils.setup_log(log_name)
 
@@ -154,8 +157,8 @@ if __name__ == "__main__":
     dataset = torch_geometric.datasets.QM9(
         root="dataset/qm9", pre_transform=qm9_pre_transform, pre_filter=qm9_pre_filter, transform=train_tform)
     
+    #NOTE: Commenting this section, fixes bug
     # datum = dataset[0]
-    # datum = deepcopy(dataset)[0]
     # print("X: ", datum.x)
     # print("EDGE: ", datum.edge_index)
 

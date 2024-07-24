@@ -153,13 +153,24 @@ def train_validate_test(
         )
         scheduler.step(val_loss)
         if writer is not None:
-            writer.add_scalar("train error", train_loss, epoch)
-            writer.add_scalar("validate error", val_loss, epoch)
-            writer.add_scalar("test error", test_loss, epoch)
+            # writer.add_scalar("train error", train_loss, epoch)
+            # writer.add_scalar("validate error", val_loss, epoch)
+            # writer.add_scalar("test error", test_loss, epoch)
+            # for ivar in range(model.module.num_heads):
+            #     writer.add_scalar(
+            #         "train error of task" + str(ivar), train_taskserr[ivar], epoch
+            #     )
+            writer.log({
+                "train error": train_loss,
+                "validate error": val_loss,
+                "test error": test_loss,
+            })
             for ivar in range(model.module.num_heads):
-                writer.add_scalar(
-                    "train error of task" + str(ivar), train_taskserr[ivar], epoch
-                )
+                task_str = ['atom type loss (CE)', 'atom pos loss (MSE)']
+                writer.log({
+                    task_str[ivar]: train_taskserr[ivar]
+                })
+
         print_distributed(
             verbosity,
             f"Epoch: {epoch:02d}, Train Loss: {train_loss:.8f}, Val Loss: {val_loss:.8f}, "

@@ -11,7 +11,7 @@
 
 import os
 import numpy as np
-
+import wandb
 import torch
 import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
@@ -73,11 +73,22 @@ def save_model(model, optimizer, name, path="./logs/"):
         )
 
 
-def get_summary_writer(name, path="./logs/"):
+def get_summary_writer(name, path="./logs/", logger='wandb'):
     _, world_rank = get_comm_size_and_rank()
     if world_rank == 0:
-        path_name = os.path.join(path, name)
-        writer = SummaryWriter(path_name)
+        if logger == 'wandb':
+            # Initialize wandb
+            writer = wandb.init(
+                project="molecule-diffusion",
+                name=name
+            )
+        else:
+            path_name = os.path.join(path, name)
+            writer = SummaryWriter(path_name)
+    else:
+        writer = None
+
+    return writer
 
 
 def load_existing_model_config(model, config, path="./logs/", optimizer=None):
