@@ -211,7 +211,7 @@ if __name__ == "__main__":
     )
 
     # Run training with the given model and qm9 dataset.
-    writer = hydragnn.utils.get_summary_writer(log_name)
+    writer = hydragnn.utils.get_summary_writer(log_name, logger='wandb', config=config)
     hydragnn.utils.save_config(config, log_name)
 
     if args.train:

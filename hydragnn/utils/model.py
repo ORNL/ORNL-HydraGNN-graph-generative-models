@@ -73,14 +73,14 @@ def save_model(model, optimizer, name, path="./logs/"):
         )
 
 
-def get_summary_writer(name, path="./logs/", logger='wandb'):
+def get_summary_writer(name, path="./logs/", logger=None, config=None):
     _, world_rank = get_comm_size_and_rank()
     if world_rank == 0:
         if logger == 'wandb':
             # Initialize wandb
             writer = wandb.init(
                 project="molecule-diffusion",
-                name=name
+                config=config,
             )
         else:
             path_name = os.path.join(path, name)

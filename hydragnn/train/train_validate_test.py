@@ -161,9 +161,9 @@ def train_validate_test(
             #         "train error of task" + str(ivar), train_taskserr[ivar], epoch
             #     )
             writer.log({
-                "train error": train_loss,
-                "validate error": val_loss,
-                "test error": test_loss,
+                "train loss": train_loss,
+                "validate loss": val_loss,
+                "test loss": test_loss,
             })
             for ivar in range(model.module.num_heads):
                 task_str = ['atom type loss (CE)', 'atom pos loss (MSE)']
