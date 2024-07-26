@@ -170,7 +170,8 @@ def train_validate_test(
             if model.module.num_heads == 2:
                 task_str = ['atom type loss (CE)', 'atom pos loss (MSE)']
             else:
-                task_str = ['atom type loss (MSE)', 'time loss (MSE)' 'atom pos loss (MSE)']
+                task_str = ['atom type loss (MSE)', 'time loss (MSE)', 'atom pos loss (MSE)']
+            
             for ivar in range(model.module.num_heads):
                 writer.log({
                     task_str[ivar]: train_taskserr[ivar]
