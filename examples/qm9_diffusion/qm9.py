@@ -68,8 +68,8 @@ def qm9_pre_transform(data: Data):
     data.edge_index = gdl_utils.fc_edge_index(data.num_nodes)
 
     # Set descriptor as element type. ONE HOT
-    data.x = atomic_num_to_one_hot(data.z.long()).float() # ONE HOT
-    # data.x = data.x[:, :5].float() # CHONF
+    # data.x = atomic_num_to_one_hot(data.z.long()).float() # ONE HOT
+    data.x = data.x[:, :5].float() # CHONF
     return data
 
 def insert_t(data: Data, t: int, T: int):
