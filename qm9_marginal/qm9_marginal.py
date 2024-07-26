@@ -171,7 +171,7 @@ if __name__ == "__main__":
     # NOTE: data is moved to the device in the pre-transform.
     # NOTE: transforms/filters will NOT be re-run unless the qm9/processed/ directory is removed.
     # Get path to QM9 dataset
-    qm9_path = os.path.join(os.path.dirname(__file__), "../examples/qm9_diffusion/dataset/qm9")
+    qm9_path = os.path.join(os.path.dirname(__file__), "../dataset/qm9")
     dp = MarginalDiffusionProcess(args.diffusion_steps, marg_dist=get_marg_dist(root_path=qm9_path))
     train_tform = get_train_transform(dp, voi["type"], voi["output_index"], [], voi["output_dim"])
     dataset = torch_geometric.datasets.QM9(

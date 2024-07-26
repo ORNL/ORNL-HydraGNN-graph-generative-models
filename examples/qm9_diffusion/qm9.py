@@ -161,8 +161,9 @@ if __name__ == "__main__":
     # NOTE: transforms/filters will NOT be re-run unless the qm9/processed/ directory is removed.
     dp = EquivariantDiffusionProcess(args.diffusion_steps)
     train_tform = get_train_transform(dp, voi["type"], voi["output_index"], [], voi["output_dim"])
+    qm9_path = os.path.join(os.path.dirname(__file__), "../../dataset/qm9")
     dataset = torch_geometric.datasets.QM9(
-        root="dataset/qm9", pre_transform=qm9_pre_transform, pre_filter=qm9_pre_filter, transform=train_tform)
+        root=qm9_path, pre_transform=qm9_pre_transform, pre_filter=qm9_pre_filter, transform=train_tform)
     
     #NOTE: Commenting this section, fixes bug
     # datum = dataset[0]
