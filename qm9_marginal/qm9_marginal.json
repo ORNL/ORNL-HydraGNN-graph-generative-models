@@ -32,10 +32,10 @@
             "dynamic_target": true
         },
         "Training": {
-            "num_epoch": 100,
+            "num_epoch": 300,
             "EarlyStopping": false,
             "Checkpoint": true,
-            "checkpoint_warmup": 75,
+            "checkpoint_warmup": 200,
             "perc_train": 0.7,
             "loss_function_type": "mse",
             "batch_size": 32,

@@ -161,6 +161,9 @@ def train_validate_test(
             #     writer.add_scalar(
             #         "train error of task" + str(ivar), train_taskserr[ivar], epoch
             #     )
+            # Log epoch number
+            writer.log({"epoch": epoch})
+
             writer.log({
                 "train loss": train_loss,
                 "validate loss": val_loss,

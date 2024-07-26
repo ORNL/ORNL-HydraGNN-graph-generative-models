@@ -148,7 +148,7 @@ if __name__ == "__main__":
     except:
         os.environ["SERIALIZED_DATA_PATH"] = os.getcwd()
 
-    num_samples = 100
+    num_samples = 130000 #100
 
     # Configurable run choices (JSON file that accompanies this example script).
     filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qm9_marginal.json")
