@@ -35,7 +35,7 @@
             "num_epoch": 300,
             "EarlyStopping": false,
             "Checkpoint": true,
-            "checkpoint_warmup": 200,
+            "checkpoint_warmup": 50,
             "perc_train": 0.7,
             "loss_function_type": "mse",
             "batch_size": 32,
