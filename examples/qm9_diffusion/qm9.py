@@ -112,16 +112,22 @@ def get_train_transform(dp: DiffusionProcess, head_types: list, out_indices: lis
 
     return train_transform
 
+def create_time_string():
+    now = datetime.datetime.now()
+    return f"run_{now.strftime('%Y%m%d')}_{now.strftime('%H')}_{now.strftime('%M')}"
 
 
 if __name__ == "__main__":
 
     parser = ArgumentParser()
 
+    # Create default log name if not specified.
+    default_log_name = create_time_string()
+
     parser.add_argument("-t", "--train", action="store_true")
     parser.add_argument("-n", "--n_gen", type=int, default=100)
     parser.add_argument("-ds", "--diffusion_steps", type=int, default=100)
-    parser.add_argument("-ln", "--log_name", type=str)
+    parser.add_argument("-ln", "--log_name", type=str, default=default_log_name)
 
     args = parser.parse_args()
 
