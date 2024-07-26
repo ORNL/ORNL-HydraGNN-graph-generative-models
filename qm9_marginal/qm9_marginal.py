@@ -113,9 +113,9 @@ def get_train_transform(dp: DiffusionProcess, head_types: list, out_indices: lis
 
     return train_transform
 
-def get_marg_dist():
+def get_marg_dist(root_path: str) -> torch.Tensor:
     # Load the QM9 dataset
-    qm9 = torch_geometric.datasets.QM9(root="./qm9_dataset")
+    qm9 = torch_geometric.datasets.QM9(root=root_path)
 
     # Find the marginal distribution of atom types in the dataset
     # Sum the atom types to get the marginal distribution
@@ -170,10 +170,10 @@ if __name__ == "__main__":
     # Filter function above used to run quick example.
     # NOTE: data is moved to the device in the pre-transform.
     # NOTE: transforms/filters will NOT be re-run unless the qm9/processed/ directory is removed.
-    dp = MarginalDiffusionProcess(args.diffusion_steps, marg_dist=get_marg_dist())
-    train_tform = get_train_transform(dp, voi["type"], voi["output_index"], [], voi["output_dim"])
     # Get path to QM9 dataset
     qm9_path = os.path.join(os.path.dirname(__file__), "../examples/qm9_diffusion/dataset/qm9")
+    dp = MarginalDiffusionProcess(args.diffusion_steps, marg_dist=get_marg_dist(root_path=qm9_path))
+    train_tform = get_train_transform(dp, voi["type"], voi["output_index"], [], voi["output_dim"])
     dataset = torch_geometric.datasets.QM9(
         root=qm9_path, pre_transform=qm9_pre_transform, pre_filter=qm9_pre_filter, transform=train_tform)
     
