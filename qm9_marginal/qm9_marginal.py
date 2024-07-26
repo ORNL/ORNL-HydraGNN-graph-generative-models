@@ -9,7 +9,7 @@ try:
 except:
     from torch_geometric.data import DataLoader
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 import hydragnn
 from torch_gdl import DiffusionProcess, utils as gdl_utils
 from torch_gdl.marginal_diffusion import MarginalDiffusionProcess
