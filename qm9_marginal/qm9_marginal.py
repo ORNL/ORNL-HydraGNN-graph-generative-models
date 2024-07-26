@@ -173,7 +173,7 @@ if __name__ == "__main__":
     dp = MarginalDiffusionProcess(args.diffusion_steps, marg_dist=get_marg_dist())
     train_tform = get_train_transform(dp, voi["type"], voi["output_index"], [], voi["output_dim"])
     dataset = torch_geometric.datasets.QM9(
-        root="qm9_dataset/raw", pre_transform=qm9_pre_transform, pre_filter=qm9_pre_filter, transform=train_tform)
+        root="../examples/qm9_diffusion/dataset/qm9", pre_transform=qm9_pre_transform, pre_filter=qm9_pre_filter, transform=train_tform)
     
     # NOTE: Commenting this section, fixes bug
     # datum = dataset[0]
