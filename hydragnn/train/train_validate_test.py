@@ -177,6 +177,7 @@ def train_validate_test(
             
             for ivar in range(model.module.num_heads):
                 writer.log({
+                    'epoch': epoch,
                     task_str[ivar]: train_taskserr[ivar]
                 })
 
