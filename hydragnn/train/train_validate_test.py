@@ -152,6 +152,8 @@ def train_validate_test(
             return_samples=plot_hist_solution,
         )
         scheduler.step(val_loss)
+        # Get last learning rate for logging
+        last_lr = scheduler.get_last_lr()
         if writer is not None:
             # TODO: Figure out how to work with both wandb and tensorboard
             # writer.add_scalar("train error", train_loss, epoch)
@@ -161,13 +163,14 @@ def train_validate_test(
             #     writer.add_scalar(
             #         "train error of task" + str(ivar), train_taskserr[ivar], epoch
             #     )
-            # Log epoch number
-
+            
+            # Log losses and learning rate to wandb
             writer.log({
                 'epoch': epoch,
                 "train loss": train_loss,
                 "validate loss": val_loss,
                 "test loss": test_loss,
+                'learning rate': last_lr[0] #returns list w/ single element
             })
 
             if model.module.num_heads == 2:
