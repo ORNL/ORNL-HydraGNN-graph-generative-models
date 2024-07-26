@@ -153,6 +153,7 @@ def train_validate_test(
         )
         scheduler.step(val_loss)
         if writer is not None:
+            # TODO: Figure out how to work with both wandb and tensorboard
             # writer.add_scalar("train error", train_loss, epoch)
             # writer.add_scalar("validate error", val_loss, epoch)
             # writer.add_scalar("test error", test_loss, epoch)
@@ -165,8 +166,12 @@ def train_validate_test(
                 "validate loss": val_loss,
                 "test loss": test_loss,
             })
-            for ivar in range(model.module.num_heads):
+
+            if model.module.num_heads == 2:
                 task_str = ['atom type loss (CE)', 'atom pos loss (MSE)']
+            else:
+                task_str = ['atom type loss (MSE)', 'time loss (MSE)' 'atom pos loss (MSE)']
+            for ivar in range(model.module.num_heads):
                 writer.log({
                     task_str[ivar]: train_taskserr[ivar]
                 })
