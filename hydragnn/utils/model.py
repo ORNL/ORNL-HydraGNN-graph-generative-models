@@ -55,6 +55,10 @@ def loss_function_selection(loss_function_string: str):
         return torch.nn.SmoothL1Loss
     elif loss_function_string == "rmse":
         return lambda x, y: torch.sqrt(torch.nn.functional.mse_loss(x, y))
+    else:
+        "Loss function not recognized. Setting to None"
+        return None
+
 
 
 def save_model(model, optimizer, name, path="./logs/"):
