@@ -2,16 +2,14 @@
  This project builds on HydraGNN, leveraging its powerful GNN and ML utilities for training, testing, and model optimization. 
 
 ## Features
-* Graph Neural Networks (GNN): Utilizing HydraGNN's robust GNN architecture for effective graph modeling.
-* Diffusion Modeling: Enhanced with diffusion processes to capture complex graph dynamics. 
-* Parallelization & Optimization:  scale with multi-GPU support 
+* TBD
 
 ## Quick Start
 Clone the repo:
 
 ```bash
-git clone https://github.com/your-repo/diffusion-gnn.git
-cd diffusion-gnn
+git clone <tbd>
+cd <tbd>
 ```
 
 ### Install Dependencies:
@@ -22,7 +20,7 @@ pip install -r requirements.txt
 
 ### Run Training:
 ```bash
-python train.py --config config.yaml
+python <tbd>
 ```
 
 ## How It Works
@@ -45,7 +43,7 @@ train:
 ```
 
 ## Modules
-`src/....py: `
+`src/<>.py: `
 
 ### Performance
 Our diffusion-enhanced GNNs show promising results in tasks such as:
