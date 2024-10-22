@@ -2,9 +2,9 @@
  This project builds on HydraGNN, leveraging its powerful GNN and ML utilities for training, testing, and model optimization. 
 
 ## Features
-    * Graph Neural Networks (GNN): Utilizing HydraGNN's robust GNN architecture for effective graph modeling. 
-    * Diffusion Modeling: Enhanced with diffusion processes to capture complex graph dynamics. 
-    * Parallelization & Optimization: Effortlessly scale with multi-GPU support and optimized training routines! ⚡
+* Graph Neural Networks (GNN): Utilizing HydraGNN's robust GNN architecture for effective graph modeling.
+* Diffusion Modeling: Enhanced with diffusion processes to capture complex graph dynamics. 
+* Parallelization & Optimization:  scale with multi-GPU support 
 
 ## Quick Start
 Clone the repo:
