@@ -22,6 +22,7 @@ from hydragnn.models.SAGEStack import SAGEStack
 from hydragnn.models.SCFStack import SCFStack
 from hydragnn.models.DIMEStack import DIMEStack
 from hydragnn.models.EGCLStack import EGCLStack
+from hydragnn.models.HybridEGCLStack import HybridEGCLStack
 
 from hydragnn.utils.distributed import get_device
 from hydragnn.utils.print_utils import print_distributed
@@ -282,6 +283,25 @@ def create_model(
 
     elif model_type == "EGNN":
         model = EGCLStack(
+            edge_dim,
+            input_dim,
+            hidden_dim,
+            output_dim,
+            output_type,
+            output_heads,
+            activation_function,
+            loss_function_type,
+            equivariance,
+            max_neighbours=max_neighbours,
+            loss_weights=task_weights,
+            freeze_conv=freeze_conv,
+            initial_bias=initial_bias,
+            num_conv_layers=num_conv_layers,
+            num_nodes=num_nodes,
+        )
+
+    elif model_type == "HybridEGNN":
+        model = HybridEGCLStack(
             edge_dim,
             input_dim,
             hidden_dim,
