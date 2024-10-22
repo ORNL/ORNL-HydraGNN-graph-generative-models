@@ -4,7 +4,7 @@ from torch_geometric.data import Data, Batch
 from typing import Optional, Callable, Union
 import numpy as np
 from .diffusion import DiffusionProcess
-from .utils import fc_edge_index
+from utils.diffusion_utils import fc_edge_index
 
 def center_gravity(x: Tensor) -> Tensor:
     x = x - x.mean(dim=0, keepdim=True) # average along the sequence
