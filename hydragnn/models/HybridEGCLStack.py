@@ -28,16 +28,16 @@ class HybridEGCLStack(EGCLStack):
         # Initialize the parent class
         super().__init__(*args, **kwargs)
 
-        # TODO: Define new loss functions
+        # Define new loss functions
         self.cross_entropy = torch.nn.CrossEntropyLoss()
         self.mse = torch.nn.MSELoss()
-        pass
 
     def loss_hpweighted(self, pred, value, head_index):
         """
-        TODO: Overwrite this method to make split loss between MSE (pos)
-        and Cross Entropy (atom types)
+        Overwrite this method to make split loss between
+        MSE (atom pos) and Cross Entropy (atom types).
         """
+
         # weights for different tasks as hyper-parameters
         tot_loss = 0
         tasks_loss = []
