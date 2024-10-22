@@ -1,5 +1,5 @@
 # Diffusion Models on Graphs with HydraGNN 
-Welcome to our Diffusion Model repository! 🎉 This project builds on HydraGNN, leveraging its powerful GNN and ML utilities for training, testing, and model optimization. We've added diffusion modeling on graphs to explore new horizons in graph-based learning. 🚀
+ This project builds on HydraGNN, leveraging its powerful GNN and ML utilities for training, testing, and model optimization. 
 
 ## Features
     * Graph Neural Networks (GNN): Utilizing HydraGNN's robust GNN architecture for effective graph modeling. 
@@ -26,7 +26,7 @@ python train.py --config config.yaml
 ```
 
 ## How It Works
-HydraGNN integration 🌊: We utilize the operational utilities from HydraGNN, such as model training, testing, and optimization, to simplify workflow.
+HydraGNN integration: We utilize the operational utilities from HydraGNN, such as model training, testing, and optimization, to simplify workflow.
 Diffusion Process: Modeled on graph structures to simulate the propagation of information or features across the graph nodes. Perfect for dynamic systems! 
 Model Parallelization: Thanks to HydraGNN, training large models with multi-GPU support is integrated.
 
