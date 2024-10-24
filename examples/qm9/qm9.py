@@ -1,23 +1,26 @@
-import os, json, sys
-import datetime
-import torch
-import torch_geometric
-from torch_geometric.data import Data, Batch
-# deprecated in torch_geometric 2.0
-try:
-    from torch_geometric.loader import DataLoader
-except:
-    from torch_geometric.data import DataLoader
-
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-import hydragnn
-from torch_gdl import EquivariantDiffusionProcess, DiffusionProcess, utils as gdl_utils
-import random
-from argparse import ArgumentParser
-
+import os, json, sys, argparse, random, datetime
+import torch, torch_geometric
 import numpy as np
 from rdkit import Chem
- 
+from torch_geometric.data import Data, Batch, DataLoader
+
+import hydragnn
+from hydragnn.utils.print import setup_log
+from hydragnn.utils.input_config_parsing import config_utils
+from hydragnn.utils.distributed import setup_ddp, get_distributed_model
+from hydragnn.preprocess.graph_samples_checks_and_updates import update_predicted_values
+
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+from src.utils import diffusion_utils as du
+from src.diffusion import DiffusionProcess
+from src.equivariant_diffusion import EquivariantDiffusionProcess
+
+# patching
+# config_utils.update_config_NN_outputs = patch_config.update_config_NN_outputs
+# hydragnn.models.Base = Base
+# hydragnn.models.EGCLStack = EGCLStack 
+
 def write_pdb_file(data, output_file):
     atom_map = [1, 6, 7, 8, 9] # HCNOF
     atom_type = {
@@ -65,7 +68,7 @@ def atomic_num_to_one_hot(atom_idents: torch.Tensor) -> torch.Tensor:
 def qm9_pre_transform(data: Data):
     # create a fully connected graph. retain the previous edge_index
     data.edge_index_old = data.edge_index
-    data.edge_index = gdl_utils.fc_edge_index(data.num_nodes)
+    data.edge_index = du.fc_edge_index(data.num_nodes)
 
     # Set descriptor as element type. ONE HOT
     # data.x = atomic_num_to_one_hot(data.z.long()).float() # ONE HOT
@@ -101,7 +104,7 @@ def get_train_transform(dp: DiffusionProcess, head_types: list, out_indices: lis
         # set y to the expected shape for HydraGNN. create a hack for noise data by creating a new data with noise in .x and .pos
         x_targ = torch.hstack([data.yx, time_vec])
         noisedata = Data(x=x_targ, pos=data.ypos)
-        hydragnn.preprocess.utils.update_predicted_values(
+        update_predicted_values(
             head_types, out_indices, graph_feature_dim, node_feature_dim, noisedata
         )
         # extract .y from the hack
@@ -119,7 +122,7 @@ def create_time_string():
 
 if __name__ == "__main__":
 
-    parser = ArgumentParser()
+    parser = argparse.ArgumentParser()
 
     # Create default log name if not specified.
     default_log_name = create_time_string()
@@ -137,7 +140,8 @@ if __name__ == "__main__":
     except:
         os.environ["SERIALIZED_DATA_PATH"] = os.getcwd()
 
-    num_samples = 130000 #100
+    # num_samples = 130000 #100
+    num_samples = 100
 
     # Configurable run choices (JSON file that accompanies this example script).
     filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), "qm9.json")
@@ -147,11 +151,11 @@ if __name__ == "__main__":
     var_config = config["NeuralNetwork"]["Variables_of_interest"]
 
     # Always initialize for multi-rank training.
-    world_size, world_rank = hydragnn.utils.setup_ddp()
+    world_size, world_rank = setup_ddp()
 
     log_name = 'cont_' + args.log_name
     # Enable print to log file.
-    hydragnn.utils.setup_log(log_name)
+    setup_log(log_name)
 
     voi = config["NeuralNetwork"]["Variables_of_interest"]
 
@@ -187,13 +191,13 @@ if __name__ == "__main__":
         train, val, test, config["NeuralNetwork"]["Training"]["batch_size"]
     )
 
-    config = hydragnn.utils.update_config(config, train_loader, val_loader, test_loader)
+    config = config_utils.update_config(config, train_loader, val_loader, test_loader)
 
     model = hydragnn.models.create_model_config(
         config=config["NeuralNetwork"],
         verbosity=verbosity,
     )
-    model = hydragnn.utils.get_distributed_model(model, verbosity)
+    model = get_distributed_model(model, verbosity)
 
     learning_rate = config["NeuralNetwork"]["Training"]["Optimizer"]["learning_rate"]
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -202,10 +206,10 @@ if __name__ == "__main__":
     )
 
     # Run training with the given model and qm9 dataset.
-    writer = hydragnn.utils.get_summary_writer(log_name, logger='wandb', config=config)
+    writer = hydragnn.utils.model.get_summary_writer(log_name)
     # Log stored run name from repo
-    writer.log({"run_name": log_name})
-    hydragnn.utils.save_config(config, log_name)
+    # writer.log({"run_name": log_name})
+    hydragnn.utils.input_config_parsing.save_config(config, log_name)
 
     if args.train:
         hydragnn.train.train_validate_test(
