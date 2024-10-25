@@ -19,17 +19,12 @@ from src.equivariant_diffusion import EquivariantDiffusionProcess
 # patching
 # config_utils.update_config_NN_outputs = patch_config.update_config_NN_outputs
 # hydragnn.models.Base = Base
-# hydragnn.models.EGCLStack = EGCLStack 
+# hydragnn.models.EGCLStack = EGCLStack
+
 
 def write_pdb_file(data, output_file):
-    atom_map = [1, 6, 7, 8, 9] # HCNOF
-    atom_type = {
-        1: 'H',
-        6: 'C',
-        7: 'N',
-        8: 'O',
-        9: 'F'
-    }
+    atom_map = [1, 6, 7, 8, 9]  # HCNOF
+    atom_type = {1: "H", 6: "C", 7: "N", 8: "O", 9: "F"}
     # Get atom types
     x_argmax = torch.argmax(data.x, dim=1).cpu().numpy()
     atoms = [atom_type[atom_map[t]] for t in x_argmax]
@@ -53,17 +48,19 @@ def write_pdb_file(data, output_file):
     # Save molecule to PDB file
     Chem.MolToPDBFile(mol, output_file)
 
+
 def atomic_num_to_one_hot(atom_idents: torch.Tensor) -> torch.Tensor:
     # expect 1-D tensor
     # CHONF
 
-    atom_idents = atom_idents.where(atom_idents != 1, 0) # hydrogen
-    atom_idents = atom_idents.where(atom_idents != 6, 1) # carbon
-    atom_idents = atom_idents.where(atom_idents != 7, 2) # nitrogen
-    atom_idents = atom_idents.where(atom_idents != 8, 3) # oxygen
-    atom_idents = atom_idents.where(atom_idents != 9, 4) # fluorine
-    
+    atom_idents = atom_idents.where(atom_idents != 1, 0)  # hydrogen
+    atom_idents = atom_idents.where(atom_idents != 6, 1)  # carbon
+    atom_idents = atom_idents.where(atom_idents != 7, 2)  # nitrogen
+    atom_idents = atom_idents.where(atom_idents != 8, 3)  # oxygen
+    atom_idents = atom_idents.where(atom_idents != 9, 4)  # fluorine
+
     return torch.nn.functional.one_hot(atom_idents, 5)
+
 
 def qm9_pre_transform(data: Data):
     # create a fully connected graph. retain the previous edge_index
@@ -72,35 +69,36 @@ def qm9_pre_transform(data: Data):
 
     # Set descriptor as element type. ONE HOT
     # data.x = atomic_num_to_one_hot(data.z.long()).float() # ONE HOT
-    data.x = data.x[:, :5].float() # CHONF
+    data.x = data.x[:, :5].float()  # CHONF
     return data
+
 
 def insert_t(data: Data, t: int, T: int):
     data_ins = data.clone().detach_()
     # concatenate node features and time
-    time_vec = torch.ones((data_ins.num_nodes, 1), device=data_ins.x.device) * t / (T - 1.)
-    data_ins.x = torch.hstack([data_ins.x, time_vec]) # n_nodes, 6
+    time_vec = (
+        torch.ones((data_ins.num_nodes, 1), device=data_ins.x.device) * t / (T - 1.0)
+    )
+    data_ins.x = torch.hstack([data_ins.x, time_vec])  # n_nodes, 6
     return data_ins, time_vec
 
-def qm9_pre_filter(data):
-    return data.idx < num_samples
-
-def get_train_transform(dp: DiffusionProcess, head_types: list, out_indices: list, graph_feature_dim: list, node_feature_dim: list):
+def get_train_transform(
+    dp: DiffusionProcess,
+    head_types: list,
+    out_indices: list,
+    graph_feature_dim: list,
+    node_feature_dim: list,
+):
+    """ """
 
     def train_transform(data: Data):
-
-        data.t = 0 # default
-        
+        data.t = 0  # default
         # randomly sample a t
-        t = random.randint(0, dp.timesteps-1)
-
-
-        data = dp.forward_process_sample(data, t) # should be attaching t to node features
-
-
+        t = random.randint(0, dp.timesteps - 1)
+        data = dp.forward_process_sample(
+            data, t
+        )  # should be attaching t to node features
         data, time_vec = insert_t(data, data.t, dp.timesteps)
-
-
         # set y to the expected shape for HydraGNN. create a hack for noise data by creating a new data with noise in .x and .pos
         x_targ = torch.hstack([data.yx, time_vec])
         noisedata = Data(x=x_targ, pos=data.ypos)
@@ -110,10 +108,10 @@ def get_train_transform(dp: DiffusionProcess, head_types: list, out_indices: lis
         # extract .y from the hack
         data.y = noisedata.y
         data.y_loc = noisedata.y_loc
-
         return data
 
     return train_transform
+
 
 def create_time_string():
     now = datetime.datetime.now()
@@ -129,6 +127,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-t", "--train", action="store_true")
     parser.add_argument("-n", "--n_gen", type=int, default=100)
+    parser.add_argument("-s", "--samples", type=int)
     parser.add_argument("-ds", "--diffusion_steps", type=int, default=100)
     parser.add_argument("-ln", "--log_name", type=str, default=default_log_name)
 
@@ -153,7 +152,7 @@ if __name__ == "__main__":
     # Always initialize for multi-rank training.
     world_size, world_rank = setup_ddp()
 
-    log_name = 'cont_' + args.log_name
+    log_name = "cont_" + args.log_name
     # Enable print to log file.
     setup_log(log_name)
 
@@ -164,30 +163,29 @@ if __name__ == "__main__":
     # NOTE: data is moved to the device in the pre-transform.
     # NOTE: transforms/filters will NOT be re-run unless the qm9/processed/ directory is removed.
     dp = EquivariantDiffusionProcess(args.diffusion_steps)
-    train_tform = get_train_transform(dp, voi["type"], voi["output_index"], [], voi["output_dim"])
+    train_tform = get_train_transform(
+        dp, voi["type"], voi["output_index"], [], voi["output_dim"]
+    )
     qm9_path = os.path.join(os.path.dirname(__file__), "../../dataset/qm9")
     dataset = torch_geometric.datasets.QM9(
-        root=qm9_path, pre_transform=qm9_pre_transform, pre_filter=qm9_pre_filter, transform=train_tform)
-    
-    #NOTE: Commenting this section, fixes bug
-    # datum = dataset[0]
-    # print("X: ", datum.x)
-    # print("EDGE: ", datum.edge_index)
+        root=qm9_path,
+        transform=train_tform
+    )
 
-    # print("---------Diffused Version---------")
-    # datum = train_tform(datum)
-    # print("Time: ", datum.t)
-    # print("X: ", datum.x)
-    # print("EDGE: ", datum.edge_index)
-    # print("Y: ", datum.y)
-    # print("POS: ", datum.pos)
-    # print("YPOS: ", datum.ypos)
-    # print("Y_shape: ", datum.y.shape)
+    # Limit the number of samples if specified.
+    if args.samples != None:
+        dataset = dataset[:args.samples]
+    else:
+        print("Training on Full Dataset")
 
     train, val, test = hydragnn.preprocess.split_dataset(
         dataset, config["NeuralNetwork"]["Training"]["perc_train"], False
     )
-    (train_loader, val_loader, test_loader,) = hydragnn.preprocess.create_dataloaders(
+    (
+        train_loader,
+        val_loader,
+        test_loader,
+    ) = hydragnn.preprocess.create_dataloaders(
         train, val, test, config["NeuralNetwork"]["Training"]["batch_size"]
     )
 
@@ -197,6 +195,7 @@ if __name__ == "__main__":
         config=config["NeuralNetwork"],
         verbosity=verbosity,
     )
+
     model = get_distributed_model(model, verbosity)
 
     learning_rate = config["NeuralNetwork"]["Training"]["Optimizer"]["learning_rate"]
@@ -240,8 +239,10 @@ if __name__ == "__main__":
             noise_data.x = atom_ident_noise
             noise_data.pos = atom_pos_noise
             return noise_data
-        
-        prior_dist_state = dp.prior_dist(torch.randint(5, 20, (args.n_gen,)), 5, 3).to(device)
+
+        prior_dist_state = dp.prior_dist(torch.randint(5, 20, (args.n_gen,)), 5, 3).to(
+            device
+        )
         # [print(pds) for pds in prior_dist_state.to_data_list()]
         prior_samples = dp.sample_from_dist(prior_dist_state)
         gen_data = dp.reverse_process_sample(prior_samples, pred_fn)
@@ -252,9 +253,8 @@ if __name__ == "__main__":
         for i, gd in enumerate(gen_data_list):
             # postprocess by subtracting off CoM
             gd.pos = gd.pos - gd.pos.mean(dim=0, keepdim=True)
-            filename = f'./logs/{log_name}/structures/gen_{i}.pdb'
+            filename = f"./logs/{log_name}/structures/gen_{i}.pdb"
             # check if directory exists, if not create it
             if not os.path.exists(f"./logs/{log_name}/structures"):
                 os.makedirs(f"./logs/{log_name}/structures")
             write_pdb_file(gd, filename)
-

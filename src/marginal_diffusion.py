@@ -6,10 +6,11 @@ import numpy as np
 from torch import Tensor, Union
 from torch_geometric.data import Data, Batch
 from typing import Optional, Callable
-from equivariant_diffusion import \
+from .equivariant_diffusion import \
     EquivariantDiffusionProcess, center_gravity
-from utils.diffusion_utils import create_noise_schedule, \
+from .utils.diffusion_utils import create_noise_schedule, \
     fc_edge_index
+
 
 # Define global functions
 def sample_atoms(noised_atoms: torch.Tensor, state_dim: int):

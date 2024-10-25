@@ -1,18 +1,25 @@
-import os, json, datetime, sys
-import torch
-import torch_geometric
-import random
-from torch_geometric.data import Data
-
-# Add parent directory to path to import local modules
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-import hydragnn
-from torch_gdl import DiffusionProcess, utils as gdl_utils
-from torch_gdl.marginal_diffusion import MarginalDiffusionProcess
-
-from argparse import ArgumentParser
+import os, json, sys, argparse, random, datetime
+import torch, torch_geometric
+import numpy as np
 from rdkit import Chem
+from torch_geometric.data import Data, Batch, DataLoader
 
+import hydragnn
+from hydragnn.utils.print import setup_log
+from hydragnn.utils.input_config_parsing import config_utils
+from hydragnn.utils.distributed import setup_ddp, get_distributed_model
+from hydragnn.preprocess.graph_samples_checks_and_updates import update_predicted_values
+
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+from src.utils import diffusion_utils as du
+from src.diffusion import DiffusionProcess
+from src.equivariant_diffusion import EquivariantDiffusionProcess
+from src.marginal_diffusion import MarginalDiffusionProcess
+
+## debug imports
+from debug import print_dict_differences
+import copy
  
 def write_pdb_file(data, output_file):
     """
@@ -122,7 +129,7 @@ def get_train_transform(
         # noise data by creating a new data with noise in .x and .pos
         x_targ = torch.hstack([data.x_probs, time_vec])
         noisedata = Data(x=x_targ, pos=data.ypos)
-        hydragnn.preprocess.utils.update_predicted_values(
+        update_predicted_values(
             head_types, out_indices, graph_feature_dim, node_feature_dim, noisedata
         )
         # extract .y from the hack
@@ -162,7 +169,7 @@ def create_time_string():
 
 if __name__ == "__main__":
 
-    parser = ArgumentParser()
+    parser = argparse.ArgumentParser()
 
     # Create default log name if not specified.
     default_log_name = create_time_string()
@@ -191,11 +198,11 @@ if __name__ == "__main__":
     var_config = config["NeuralNetwork"]["Variables_of_interest"]
 
     # Always initialize for multi-rank training.
-    world_size, world_rank = hydragnn.utils.setup_ddp()
+    world_size, world_rank = setup_ddp()
 
     log_name = args.log_name
     # Enable print to log file.
-    hydragnn.utils.setup_log(log_name)
+    setup_log(log_name)
 
     voi = config["NeuralNetwork"]["Variables_of_interest"]
 
@@ -233,17 +240,17 @@ if __name__ == "__main__":
     (train_loader, val_loader, test_loader,) = hydragnn.preprocess.create_dataloaders(
         train, val, test, config["NeuralNetwork"]["Training"]["batch_size"]
     )
-
+    print(train[0])
+    print(train[0].y_loc)
     # Update the config with the dataloaders.
-    config = hydragnn.utils.update_config(config, train_loader, val_loader, test_loader)
-
+    config = config_utils.update_config(config, train_loader, val_loader, test_loader)
     # Create the model from the config specifications
     model = hydragnn.models.create_model_config(
         config=config["NeuralNetwork"],
         verbosity=verbosity,
     )
     # Distribute the model across ranks (if necessary).
-    model = hydragnn.utils.get_distributed_model(model, verbosity)
+    model = get_distributed_model(model, verbosity)
 
     # Define training optimizer and scheduler
     learning_rate = config["NeuralNetwork"]["Training"]["Optimizer"]["learning_rate"]
@@ -253,8 +260,12 @@ if __name__ == "__main__":
     )
 
     # Create a summary writer and save the config.
-    writer = hydragnn.utils.get_summary_writer(log_name)
-
+    writer = hydragnn.utils.model.get_summary_writer(log_name)
+    print('***')
+    for batch in train_loader:
+        pred = model(batch)
+        print(len(pred))
+        break
     # Run training with the given model and qm9 dataset.
     if args.train:
         hydragnn.train.train_validate_test(
