@@ -6,3 +6,5 @@ dist/
 dataset/
 logs/
 serialized_dataset/
+
+*.ipynb
