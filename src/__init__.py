@@ -1,7 +1,7 @@
-from .diffusion import DiffusionProcess
-from .equivariant_diffusion import EquivariantDiffusionProcess
+# from .processes.diffusion import DiffusionProcess
+# from .processes.equivariant_diffusion import EquivariantDiffusionProcess
 
-__all__ = [
-    "DiffusionProcess",
-    "EquivariantDiffusionProcess"
-]
+# __all__ = [
+#     "DiffusionProcess",
+#     "EquivariantDiffusionProcess"
+# ]

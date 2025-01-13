@@ -211,27 +211,21 @@ if __name__ == "__main__":
     var_config = config["NeuralNetwork"]["Variables_of_interest"]
     # Always initialize for multi-rank training.
     world_size, world_rank = setup_ddp()
-
     log_name = args.log_name
     # Enable print to log file.
     setup_log(log_name)
-
     voi = config["NeuralNetwork"]["Variables_of_interest"]
 
-    """
-    Use built-in torch_geometric dataset.
-    NOTE: data is moved to the device in the pre-transform.
-    NOTE: transforms/filters will NOT be re-run unless the qm9/processed/ directory is removed.
-    """
     # Set path to QM9 dataset.
     qm9_path = os.path.join(file_path, "dataset")
+
     # Create a MarginalDiffusionProcess object.
     dp = MarginalDiffusionProcess(
         args.diffusion_steps, marg_dist=get_marg_dist(root_path=qm9_path)
     )
     # Create a training transform function for the QM9 dataset.
-    # train_tform = get_train_transform(dp, voi["type"], voi["output_index"], [], voi["output_dim"])
     train_tform = get_train_transform(dp)
+
     # Load the QM9 dataset from torch with the pre-transform, pre-filter, and train transform.
     dataset = torch_geometric.datasets.QM9(root=qm9_path, transform=train_tform)
 
@@ -253,9 +247,10 @@ if __name__ == "__main__":
     ) = hydragnn.preprocess.create_dataloaders(
         train, val, test, config["NeuralNetwork"]["Training"]["batch_size"]
     )
+
     # Update the config with the dataloaders.
     config = config_utils.update_config(config, train_loader, val_loader, test_loader)
-    pprint.pprint(config)
+
     # Create the model from the config specifications
     model = hydragnn.models.create_model_config(
         config=config["NeuralNetwork"],
@@ -265,11 +260,6 @@ if __name__ == "__main__":
     model = get_distributed_model(model, verbosity)
 
     # Define training optimizer and scheduler
-    learning_rate = config["NeuralNetwork"]["Training"]["Optimizer"]["learning_rate"]
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=5, min_lr=0.00001
-    )
     # Train the model
     learning_rate = config["NeuralNetwork"]["Training"]["Optimizer"]["learning_rate"]
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -277,13 +267,18 @@ if __name__ == "__main__":
         optimizer, mode="min", factor=0.5, patience=5, min_lr=0.00001
     )
 
-    loss = lambda outputs, targets: torch.nn.functional.mse_loss(
-        outputs[1], targets[1]
-    ) + torch.nn.functional.cross_entropy(outputs[0], targets[0])
+    # loss = lambda outputs, targets: torch.nn.functional.mse_loss(
+    #     outputs[1], targets[1]
+    # ) + torch.nn.functional.cross_entropy(outputs[0], targets[0])
+
+    def loss(outputs, targets):
+        l1 = torch.nn.functional.mse_loss(outputs[1], targets[1])
+        l2 = torch.nn.functional.cross_entropy(outputs[0], targets[0])
+        return 2*l1+l2
 
     # Run training with the given model and qm9 dataset.
     if args.train:
-        train_model(model, loss, optimizer, train_loader, 10)
+        train_model(model, loss, optimizer, train_loader, 100)
 
     # Generate molecules if specified.
     if args.gen > 0:

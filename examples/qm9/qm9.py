@@ -13,8 +13,8 @@ from hydragnn.preprocess.graph_samples_checks_and_updates import update_predicte
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 from src.utils import diffusion_utils as du
-from src.diffusion import DiffusionProcess
-from src.equivariant_diffusion import EquivariantDiffusionProcess
+from src.processes.diffusion import DiffusionProcess
+from src.processes.equivariant_diffusion import EquivariantDiffusionProcess
 
 # patching
 # config_utils.update_config_NN_outputs = patch_config.update_config_NN_outputs
