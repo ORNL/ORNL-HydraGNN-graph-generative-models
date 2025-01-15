@@ -47,6 +47,7 @@ def train_model(model, loss_fun, optimizer, dataloader, num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}, Loss: {epoch_loss:.4f}")
 
     print("Training complete!")
+    return model
 
 
 def get_train_transform(dp: DiffusionProcess):

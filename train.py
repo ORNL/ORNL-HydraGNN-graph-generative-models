@@ -33,9 +33,6 @@ def train(args):
     var_config = config["NeuralNetwork"]["Variables_of_interest"]
     # Always initialize for multi-rank training.
     world_size, world_rank = setup_ddp()
-    log_name = args.log_name
-    # Enable print to log file.
-    setup_log(log_name)
     voi = config["NeuralNetwork"]["Variables_of_interest"]
 
     # Create a MarginalDiffusionProcess object.
@@ -72,6 +69,11 @@ def train(args):
     # Update the config with the dataloaders.
     config = config_utils.update_config(config, train_loader, val_loader, test_loader)
 
+    # Save the config with all the updated stuff
+    models_path = './models'
+    with open(os.path.join(models_path,args.run_name,'config.json'), 'w') as json_file:
+        json.dump(config, json_file, indent=4)
+
     # Create the model from the config specifications
     model = hydragnn.models.create_model_config(
         config=config["NeuralNetwork"],
@@ -94,8 +96,10 @@ def train(args):
         return 2 * l1 + l2
 
     # Run training with the given model and dataset.
-    train_model(model, loss, optimizer, train_loader, config["NeuralNetwork"]["Training"]["num_epoch"])
+    model = train_model(model, loss, optimizer, train_loader, config["NeuralNetwork"]["Training"]["num_epoch"])
 
+    # save the model
+    torch.save(model.module.state_dict(), os.path.join(models_path,args.run_name,'model.pth'))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -105,7 +109,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-s", "--samples", type=int)
     parser.add_argument("-ds", "--diffusion_steps", type=int, default=100)
-    parser.add_argument("-l", "--log_name", type=str, default=default_log_name)
+    parser.add_argument("-l", "--run_name", type=str, default=default_log_name)
     parser.add_argument(
         "-c", "--config_path", type=str, default="examples/qm9/qm9_marginal.json"
     )

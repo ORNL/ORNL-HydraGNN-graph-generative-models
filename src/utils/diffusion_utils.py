@@ -3,6 +3,7 @@ import torch
 import torch_geometric
 import numpy as np
 from typing import Optional, Callable, Union
+from rdkit import Chem
 
 def fc_edge_index(n_nodes: int) -> torch.Tensor:
     assert isinstance(n_nodes, int)
