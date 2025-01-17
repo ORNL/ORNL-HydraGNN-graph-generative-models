@@ -7,5 +7,6 @@ dataset/
 logs/
 serialized_dataset/
 models/*
+wandb/*
 
 *.ipynb

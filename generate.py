@@ -46,6 +46,16 @@ def load_model(args):
     return config, model
 
 def generate(args):
+    """
+    Generates molecular structures using a diffusion process and a pretrained model.
+
+    args:
+        args (argparse.Namespace): Command-line arguments containing the following attributes:
+            - data_path (str): Path to the data used to define the marginal distribution.
+            - diffusion_steps (int): Number of diffusion steps to use in the generative process.
+            - num_gen (int): Number of molecular structures to generate.
+            - model (str): Path or identifier for loading the pretrained model.
+    """
 
     # load model, get device
     _, model = load_model(args)

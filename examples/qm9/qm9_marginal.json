@@ -39,7 +39,7 @@
             "dynamic_target": true
         },
         "Training": {
-            "num_epoch": 3,
+            "num_epoch": 100,
             "EarlyStopping": false,
             "Checkpoint": true,
             "checkpoint_warmup": 1,

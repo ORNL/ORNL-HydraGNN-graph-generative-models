@@ -1,54 +1,178 @@
-import random
+import os, random
 import torch
+import wandb
 
 from torch_geometric.data import Data
 
 from src.processes.diffusion import DiffusionProcess
 
+class ModelLoggerHandler:
+    """
+    Handles model logging and saving operations during training.
+    """
+    def __init__(self, logger=None, model_name="model", save_freq=1, save_best=True):
+        self.logger = logger
+        self.model_name = model_name
+        self.save_freq = save_freq
+        self.save_best = save_best
+        self.best_loss = float('inf')
 
-def train_model(model, loss_fun, optimizer, dataloader, num_epochs):
+        # Setup save directory if using wandb
+        if isinstance(logger, type(wandb.run)):
+            self.save_dir = os.path.join(wandb.run.dir, 'checkpoints')
+            os.makedirs(self.save_dir, exist_ok=True)
+        else:
+            self.save_dir = '.'
+        
+    def setup(self, model, config=None):
+        """Initialize logger with config and model watching."""
+        if self.logger is not None and config is not None:
+            if hasattr(self.logger, 'config'):
+                for key, value in config.items():
+                    self.logger.config[key] = value
+            
+            if hasattr(self.logger, 'watch'):
+                self.logger.watch(model, log_freq=100)
+    
+    def log_batch(self, loss, batch_idx, epoch, total_batches):
+        """Log batch-level metrics."""
+        if self.logger is not None and hasattr(self.logger, 'log'):
+            metrics = {
+                "batch_loss": loss.item(),
+                "batch": batch_idx + epoch * total_batches
+            }
+            self.logger.log(metrics)
+    
+    def log_epoch(self, epoch, avg_loss, learning_rate):
+        """Log epoch-level metrics."""
+        if self.logger is not None and hasattr(self.logger, 'log'):
+            metrics = {
+                "epoch": epoch + 1,
+                "epoch_loss": avg_loss,
+                "learning_rate": learning_rate
+            }
+            self.logger.log(metrics)
+    
+    def save_checkpoint(self, epoch, model, optimizer, loss, is_best=False):
+        """Save model checkpoint and upload to wandb if available."""
+        if self.logger is None:
+            return
+            
+        # Determine checkpoint name
+        checkpoint_name = f"{self.model_name}_best.pt" if is_best else f"{self.model_name}_epoch_{epoch+1}.pt"
+        checkpoint_path = os.path.join(self.save_dir, checkpoint_name)
+
+
+        # Save checkpoint locally
+        torch.save({
+            'epoch': epoch + 1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': loss,
+        }, checkpoint_path)
+        
+        # Upload to wandb if available
+        if isinstance(self.logger, type(wandb.run)):
+            artifact = wandb.Artifact(
+                name=f'{self.model_name}_{"best" if is_best else "checkpoint"}',
+                type='model',
+                description=f'{"Best model" if is_best else "Model"} checkpoint from epoch {epoch+1}'
+            )
+            artifact.add_file(checkpoint_path)
+            self.logger.log_artifact(artifact)
+            # Clean up local checkpoint
+            # os.remove(checkpoint_name)
+    
+    def handle_epoch_end(self, epoch, model, optimizer, avg_loss):
+        """Handle end of epoch operations (logging and saving)."""
+        # Save based on frequency
+        # if (epoch + 1) % self.save_freq == 0:
+        #     self.save_checkpoint(epoch, model, optimizer, avg_loss)
+        
+        # Save best model if enabled
+        if self.save_best and avg_loss < self.best_loss:
+            self.best_loss = avg_loss
+            self.save_checkpoint(epoch, model, optimizer, avg_loss, is_best=True)
+    
+    def finish(self):
+        """Cleanup logging resources."""
+        if self.logger is not None and hasattr(self.logger, 'finish'):
+            self.logger.finish()
+
+def train_model(model, loss_fun, optimizer, dataloader, num_epochs, logger=None, config=None, 
+                save_freq=1, save_best=True, model_name="model"):
     """
     Trains a given model using the provided loss function, optimizer, and data loader.
-
+    
     Args:
     -----
         model (torch.nn.Module): The model to be trained.
         loss_fun (callable): The loss function to compute the training loss.
-            Should accept the model outputs and target labels as input.
         optimizer (torch.optim.Optimizer): The optimizer used to update the model's weights.
-        dataloader (torch.utils.data.DataLoader): An iterable over the training dataset, providing batches of input data.
+        dataloader (torch.utils.data.DataLoader): An iterable over the training dataset.
         num_epochs (int): The number of epochs for training.
-
+        logger: The logger object to use for experiment tracking.
+        config (dict, optional): Configuration dictionary for logger initialization.
+        save_freq (int): Frequency of saving model checkpoints (in epochs).
+        save_best (bool): Whether to save the best model based on loss.
+        model_name (str): Base name for saved model files.
+    
     Returns:
     --------
-        None
+        model: The trained model
     """
+    device = torch.device("mps" if torch.backends.mps.is_available() 
+                      else "cuda" if torch.cuda.is_available() 
+                      else "cpu")
 
+    model.to(device)
+    # Initialize logger handler
+    logger_handler = ModelLoggerHandler(
+        logger=logger,
+        model_name=model_name,
+        save_freq=save_freq,
+        save_best=save_best
+    )
+    logger_handler.setup(model, config)
+    
     for epoch in range(num_epochs):
-        model.train()  # Set model to training mode
+        model.train()
         epoch_loss = 0
-
-        for batch in dataloader:
-
+        batch_count = 0
+        
+        for batch_idx, batch in enumerate(dataloader):
             # Forward pass
-            outputs = model(batch)
+            outputs = model(batch.to(device))
             loss = loss_fun(outputs, [batch.y[:, :6], batch.y[:, 6:]])
-
-            # Backward pass
+            
+            # Backward pass and optimization
             optimizer.zero_grad()
             loss.backward()
-
-            # Update weights
             optimizer.step()
-
+            
             # Accumulate loss
             epoch_loss += loss.item()
-
-        print(f"Epoch {epoch+1}/{num_epochs}, Loss: {epoch_loss:.4f}")
-
+            batch_count += 1
+            
+            # Log batch metrics
+            logger_handler.log_batch(loss, batch_idx, epoch, len(dataloader))
+        
+        # Calculate and log epoch metrics
+        avg_epoch_loss = epoch_loss / batch_count
+        logger_handler.log_epoch(
+            epoch, 
+            avg_epoch_loss, 
+            optimizer.param_groups[0]['lr']
+        )
+        
+        # Handle end of epoch (saving checkpoints)
+        logger_handler.handle_epoch_end(epoch, model, optimizer, avg_epoch_loss)
+        
+        print(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_epoch_loss:.4f}")
+    
     print("Training complete!")
+    logger_handler.finish()
     return model
-
 
 def get_train_transform(dp: DiffusionProcess):
     """

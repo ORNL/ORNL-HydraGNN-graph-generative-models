@@ -1,4 +1,4 @@
-import os, json, sys, argparse, random, datetime
+import os, json, sys, argparse, random, datetime, wandb
 import torch, torch_geometric
 import numpy as np
 from rdkit import Chem
@@ -19,6 +19,7 @@ from src.utils.train_utils import train_model, get_train_transform, insert_t
 
 
 def train(args):
+
     # Set this path for output.
     try:
         os.environ["SERIALIZED_DATA_PATH"]
@@ -70,17 +71,20 @@ def train(args):
     config = config_utils.update_config(config, train_loader, val_loader, test_loader)
 
     # Save the config with all the updated stuff
-    models_path = './models'
-    with open(os.path.join(models_path,args.run_name,'config.json'), 'w') as json_file:
-        json.dump(config, json_file, indent=4)
+    wandb.init(project="graph diffusion model", config=config)
+
+    # models_path = './models'
+    # with open(os.path.join(models_path,args.run_name,'config.json'), 'w') as json_file:
+    #     json.dump(config, json_file, indent=4)
 
     # Create the model from the config specifications
     model = hydragnn.models.create_model_config(
         config=config["NeuralNetwork"],
         verbosity=verbosity,
     )
+
     # Distribute the model across ranks (if necessary).
-    model = get_distributed_model(model, verbosity)
+    # model = get_distributed_model(model, verbosity)
 
     # Define training optimizer and scheduler
     learning_rate = config["NeuralNetwork"]["Training"]["Optimizer"]["learning_rate"]
@@ -96,10 +100,18 @@ def train(args):
         return 2 * l1 + l2
 
     # Run training with the given model and dataset.
-    model = train_model(model, loss, optimizer, train_loader, config["NeuralNetwork"]["Training"]["num_epoch"])
+    model = train_model(
+        model,
+        loss,
+        optimizer,
+        train_loader,
+        config["NeuralNetwork"]["Training"]["num_epoch"],
+        logger=wandb.run,
+    )
 
     # save the model
-    torch.save(model.module.state_dict(), os.path.join(models_path,args.run_name,'model.pth'))
+    # torch.save(model.module.state_dict(), os.path.join(models_path,args.run_name,'model.pth'))
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
