@@ -73,18 +73,11 @@ def train(args):
     # Save the config with all the updated stuff
     wandb.init(project="graph diffusion model", config=config)
 
-    # models_path = './models'
-    # with open(os.path.join(models_path,args.run_name,'config.json'), 'w') as json_file:
-    #     json.dump(config, json_file, indent=4)
-
     # Create the model from the config specifications
     model = hydragnn.models.create_model_config(
         config=config["NeuralNetwork"],
         verbosity=verbosity,
     )
-
-    # Distribute the model across ranks (if necessary).
-    # model = get_distributed_model(model, verbosity)
 
     # Define training optimizer and scheduler
     learning_rate = config["NeuralNetwork"]["Training"]["Optimizer"]["learning_rate"]
@@ -109,19 +102,13 @@ def train(args):
         logger=wandb.run,
     )
 
-    # save the model
-    # torch.save(model.module.state_dict(), os.path.join(models_path,args.run_name,'model.pth'))
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # Create default log name if not specified.
-    default_log_name = "test"
 
     parser.add_argument("-s", "--samples", type=int)
     parser.add_argument("-ds", "--diffusion_steps", type=int, default=100)
-    parser.add_argument("-l", "--run_name", type=str, default=default_log_name)
     parser.add_argument(
         "-c", "--config_path", type=str, default="examples/qm9/qm9_marginal.json"
     )
