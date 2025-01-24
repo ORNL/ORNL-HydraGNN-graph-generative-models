@@ -8,5 +8,7 @@ logs/
 serialized_dataset/
 models/*
 wandb/*
+notebooks/*
+
 
 *.ipynb

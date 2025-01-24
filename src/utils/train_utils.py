@@ -213,7 +213,7 @@ def get_train_transform(dp: DiffusionProcess):
         # set y to the expected shape for HydraGNN. Create a hack for
         # noise data by creating a new data with noise in .x and .pos
         x_targ = torch.hstack([data.x_probs, time_vec])
-        noisedata = Data(x=x_targ, pos=data.ypos)
+        # noisedata = Data(x=x_targ, pos=data.ypos)
 
         # update_predicted_values(
         #     head_types, out_indices, graph_feature_dim, node_feature_dim, noisedata

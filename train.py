@@ -89,7 +89,8 @@ def train(args):
     # TODO move this to train_utils.py, name specific
     def loss(outputs, targets):
         l1 = torch.nn.functional.mse_loss(outputs[1], targets[1])
-        l2 = torch.nn.functional.cross_entropy(outputs[0], targets[0])
+        # l2 = torch.nn.functional.cross_entropy(outputs[0], targets[0])
+        l2 = 0
         return 2 * l1 + l2
 
     # Run training with the given model and dataset.

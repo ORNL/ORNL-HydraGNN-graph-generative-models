@@ -282,7 +282,7 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
         """
         t, s = state.t, state.t - 1
         noise_state = pred_fn(state) # pred_fn should subtract positional center of mass to maintain equivariance
-
+        print(noise_state.pos)
         # Denoise position parameters
         alpha_ts = self.alphas[t]/self.alphas[s]
         var_t = 1. - self.alphas[t]**2
