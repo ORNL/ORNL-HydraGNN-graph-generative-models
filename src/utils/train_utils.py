@@ -1,4 +1,5 @@
 import os, random
+import tqdm
 import torch
 import wandb
 
@@ -43,13 +44,14 @@ class ModelLoggerHandler:
             }
             self.logger.log(metrics)
     
-    def log_epoch(self, epoch, avg_loss, learning_rate):
+    def log_epoch(self, epoch, avg_loss, avg_val_loss, learning_rate):
         """Log epoch-level metrics."""
         if self.logger is not None and hasattr(self.logger, 'log'):
             metrics = {
                 "epoch": epoch + 1,
                 "epoch_loss": avg_loss,
-                "learning_rate": learning_rate
+                "learning_rate": learning_rate,
+                "avg_val_loss": avg_val_loss
             }
             self.logger.log(metrics)
     
@@ -67,19 +69,19 @@ class ModelLoggerHandler:
         torch.save({
             'epoch': epoch + 1,
             'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
+            # 'optimizer_state_dict': optimizer.state_dict(),
             'loss': loss,
         }, checkpoint_path)
         
         # Upload to wandb if available
-        if isinstance(self.logger, type(wandb.run)):
-            artifact = wandb.Artifact(
-                name=f'{self.model_name}_{"best" if is_best else "checkpoint"}',
-                type='model',
-                description=f'{"Best model" if is_best else "Model"} checkpoint from epoch {epoch+1}'
-            )
-            artifact.add_file(checkpoint_path)
-            self.logger.log_artifact(artifact)
+        # if isinstance(self.logger, type(wandb.run)):
+        #     artifact = wandb.Artifact(
+        #         name=f'{self.model_name}_{"best" if is_best else "checkpoint"}',
+        #         type='model',
+        #         description=f'{"Best model" if is_best else "Model"} checkpoint from epoch {epoch+1}'
+        #     )
+            #artifact.add_file(checkpoint_path)
+            #self.logger.log_artifact(artifact)
             # Clean up local checkpoint
             # os.remove(checkpoint_name)
     
@@ -99,7 +101,7 @@ class ModelLoggerHandler:
         if self.logger is not None and hasattr(self.logger, 'finish'):
             self.logger.finish()
 
-def train_model(model, loss_fun, optimizer, dataloader, num_epochs, logger=None, config=None, 
+def train_model(model, loss_fun, optimizer, train_dataloader, val_dataloader, num_epochs, logger=None, config=None, 
                 save_freq=1, save_best=True, model_name="model"):
     """
     Trains a given model using the provided loss function, optimizer, and data loader.
@@ -109,7 +111,7 @@ def train_model(model, loss_fun, optimizer, dataloader, num_epochs, logger=None,
         model (torch.nn.Module): The model to be trained.
         loss_fun (callable): The loss function to compute the training loss.
         optimizer (torch.optim.Optimizer): The optimizer used to update the model's weights.
-        dataloader (torch.utils.data.DataLoader): An iterable over the training dataset.
+        train_dataloader (torch.utils.data.DataLoader): An iterable over the training dataset.
         num_epochs (int): The number of epochs for training.
         logger: The logger object to use for experiment tracking.
         config (dict, optional): Configuration dictionary for logger initialization.
@@ -140,9 +142,10 @@ def train_model(model, loss_fun, optimizer, dataloader, num_epochs, logger=None,
         epoch_loss = 0
         batch_count = 0
         
-        for batch_idx, batch in enumerate(dataloader):
+        for batch_idx, batch in tqdm.tqdm(enumerate(train_dataloader)):
             # Forward pass
             outputs = model(batch.to(device))
+            #outputs[1] = outputs[1] - batch.pos # remove the noisy structure
             loss = loss_fun(outputs, [batch.y[:, :6], batch.y[:, 6:]])
             
             # Backward pass and optimization
@@ -155,20 +158,36 @@ def train_model(model, loss_fun, optimizer, dataloader, num_epochs, logger=None,
             batch_count += 1
             
             # Log batch metrics
-            logger_handler.log_batch(loss, batch_idx, epoch, len(dataloader))
-        
+            logger_handler.log_batch(loss, batch_idx, epoch, len(train_dataloader))
+
+        # validation: 
+        model.eval()
+        epoch_loss = 0
+        epoch_val_loss = 0
+        for batch_idx, batch in tqdm.tqdm(enumerate(val_dataloader)):
+            with torch.no_grad():
+                # Forward pass
+                outputs = model(batch.to(device))
+                #outputs[1] = outputs[1] - batch.pos # remove the noisy structure
+                loss = loss_fun(outputs, [batch.y[:, :6], batch.y[:, 6:]])
+                
+                # Accumulate loss
+                epoch_val_loss += loss.item()
+                batch_count += 1
+        avg_epoch_val_loss = avg_epoch_val_loss / batch_count
         # Calculate and log epoch metrics
         avg_epoch_loss = epoch_loss / batch_count
         logger_handler.log_epoch(
             epoch, 
             avg_epoch_loss, 
+            avg_epoch_val_loss,
             optimizer.param_groups[0]['lr']
         )
         
         # Handle end of epoch (saving checkpoints)
         logger_handler.handle_epoch_end(epoch, model, optimizer, avg_epoch_loss)
         
-        print(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_epoch_loss:.4f}")
+        # print(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_epoch_loss:.4f}")
     
     print("Training complete!")
     logger_handler.finish()
@@ -200,7 +219,7 @@ def get_train_transform(dp: DiffusionProcess):
 
         # Only use atom type features
         data.x = data.x[:, :5].float()
-
+        initial_pos = data.pos.clone()
         # randomly sample a t
         t = random.randint(0, dp.timesteps - 1)
 
@@ -210,24 +229,15 @@ def get_train_transform(dp: DiffusionProcess):
 
         data, time_vec = insert_t(data, data.t, dp.timesteps)
 
-        # set y to the expected shape for HydraGNN. Create a hack for
-        # noise data by creating a new data with noise in .x and .pos
         x_targ = torch.hstack([data.x_probs, time_vec])
-        # noisedata = Data(x=x_targ, pos=data.ypos)
-
-        # update_predicted_values(
-        #     head_types, out_indices, graph_feature_dim, node_feature_dim, noisedata
-        # )
-        # extract .y from the hack
-        # data.y = noisedata.y
-        # data.y_loc = noisedata.y_loc
         training_sample = data.clone()
         training_sample.y_loc = torch.tensor(
             [0, 6, 9], dtype=torch.int64, device=data.x.device
         ).unsqueeze(0)
         training_sample.x = x_targ
-        training_sample.pos = data.ypos
-        training_sample.y = torch.hstack([data.x, data.pos])
+        # training_sample.initial_pos = initial_pos
+        training_sample.pos = data.pos # new atomistic positions
+        training_sample.y = torch.hstack([data.x, initial_pos])
         return training_sample
 
     return train_transform

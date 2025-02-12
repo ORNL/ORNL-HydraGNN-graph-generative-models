@@ -43,7 +43,9 @@ def create_noise_schedule(
 
         if type == 'cos':
             # Return tensor of cosine noise schedule
-            return torch.cos(torch.pi/2 * (t / (timesteps + s)) / (1 + s))**2
+            alphas = torch.cos(torch.pi/2 * (t / (timesteps + s)) / (1 + s))**2
+            alphas[alphas<1e-3] = 1e-3
+            return alphas
         elif type == 'linear':
             # Assert alpha is not non if type is linear
             assert alpha is not None, "alpha must be provided for linear noise schedule"

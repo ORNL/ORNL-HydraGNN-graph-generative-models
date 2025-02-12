@@ -13,9 +13,11 @@
             "max_neighbours": 500,
             "periodic_boundary_conditions": false,
             "hidden_dim": 2048,
+            "activation_function": "relu",
             "num_conv_layers": 4,
+            "num_radial": 3,
             "equivariance": true,
-            "input_dim": [5],
+            "input_dim": [6],
             "output_dim": [5,3],
             "pe_dim": 2,
             "output_type": ["node"],
@@ -39,13 +41,13 @@
             "dynamic_target": true
         },
         "Training": {
-            "num_epoch": 100,
+            "num_epoch": 500,
             "EarlyStopping": false,
             "Checkpoint": true,
             "checkpoint_warmup": 1,
             "perc_train": 0.7,
             "loss_function_type": "", 
-            "batch_size": 32,
+            "batch_size": 64,
             "continue": 0,
             "startfrom": "existing_model",
             "Optimizer": {

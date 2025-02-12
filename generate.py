@@ -1,4 +1,4 @@
-import os, json, argparse
+import os, yaml, argparse
 import torch
 
 import hydragnn
@@ -15,6 +15,8 @@ def pred_fn(model, data, dp):
     model.eval()
     out = model(data_tx)
     atom_ident_noise, atom_pos_noise = out[0], out[1]
+    atom_pos_noise = atom_pos_noise - data.pos
+    atom_pos_noise = atom_pos_noise - torch.mean(atom_pos_noise, dim=0)
     noise_data = data.clone().detach_()
     noise_data.x = atom_ident_noise
     noise_data.pos = atom_pos_noise
@@ -22,19 +24,17 @@ def pred_fn(model, data, dp):
 
 def load_model(args):
     # load the config
-    with open(os.path.join(args.run_name,'config.json'),'r') as f:
-        config = json.load(f)
-
-    verbosity = config["Verbosity"]["level"]
-
+    with open(os.path.join(args.run_name,'config.yaml'),'r') as f:
+        config = yaml.safe_load(f)
+    verbosity = config["Verbosity"]["value"]["level"]
     # Create the model from the config specifications
     model = hydragnn.models.create_model_config(
-        config=config["NeuralNetwork"],
+        config=config["NeuralNetwork"]["value"],
         verbosity=verbosity,
     )
     # Distribute the model across ranks (if necessary).
-    model = get_distributed_model(model, verbosity)
-    model.load_state_dict(torch.load(os.path.join(args.run_name,"model.pth")))
+    # model = get_distributed_model(model, verbosity)
+    model.load_state_dict(torch.load(os.path.join(args.run_name,"checkpoints/model_best.pt"))['model_state_dict'])
     return config, model
 
 def generate(args):

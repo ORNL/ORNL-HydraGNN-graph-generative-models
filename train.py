@@ -1,5 +1,7 @@
 import os, json, sys, argparse, random, datetime, wandb
 import torch, torch_geometric
+# from torchmdnet.models import EquivariantModel
+# from torchmdnet.utils import make_spherical_harmonics
 import numpy as np
 from rdkit import Chem
 from torch_geometric.data import Data, Batch, DataLoader
@@ -81,7 +83,7 @@ def train(args):
 
     # Define training optimizer and scheduler
     learning_rate = config["NeuralNetwork"]["Training"]["Optimizer"]["learning_rate"]
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=.0001)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=5, min_lr=0.00001
     )
@@ -89,9 +91,8 @@ def train(args):
     # TODO move this to train_utils.py, name specific
     def loss(outputs, targets):
         l1 = torch.nn.functional.mse_loss(outputs[1], targets[1])
-        # l2 = torch.nn.functional.cross_entropy(outputs[0], targets[0])
-        l2 = 0
-        return 2 * l1 + l2
+        l2 = torch.nn.functional.cross_entropy(outputs[0], targets[0])
+        return 4 * l1 + l2
 
     # Run training with the given model and dataset.
     model = train_model(
@@ -99,6 +100,7 @@ def train(args):
         loss,
         optimizer,
         train_loader,
+        val_loader,
         config["NeuralNetwork"]["Training"]["num_epoch"],
         logger=wandb.run,
     )
@@ -109,7 +111,7 @@ if __name__ == "__main__":
     # Create default log name if not specified.
 
     parser.add_argument("-s", "--samples", type=int)
-    parser.add_argument("-ds", "--diffusion_steps", type=int, default=100)
+    parser.add_argument("-ds", "--diffusion_steps", type=int, default=1000)
     parser.add_argument(
         "-c", "--config_path", type=str, default="examples/qm9/qm9_marginal.json"
     )

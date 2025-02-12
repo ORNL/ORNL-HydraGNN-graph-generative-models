@@ -221,7 +221,6 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
         data.t = dist_state['t']
         data.pos_mu = None
         data.pos_sigma = None
-
         return data
     
     def prior_dist(self, state_dims: Union[Tensor, int], x_dim: int, pos_dim: int) -> Data:
@@ -282,16 +281,13 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
         """
         t, s = state.t, state.t - 1
         noise_state = pred_fn(state) # pred_fn should subtract positional center of mass to maintain equivariance
-        print(noise_state.pos)
         # Denoise position parameters
         alpha_ts = self.alphas[t]/self.alphas[s]
         var_t = 1. - self.alphas[t]**2
         var_s = 1. - self.alphas[s]**2
         var_ts = var_t - (alpha_ts**2)*var_s
-
         pos_mu_s = state.pos/alpha_ts - (var_ts/(alpha_ts*(var_t**0.5)))*noise_state.pos
         pos_sigma_s = (var_ts*var_s/var_t)**0.5
-
         # create dist_state and decrement t
         dist_state = state.clone().detach_()
         dist_state.x_probs = noise_state.x_probs
