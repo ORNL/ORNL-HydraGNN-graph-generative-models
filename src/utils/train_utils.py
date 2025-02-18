@@ -124,7 +124,7 @@ def train_model(model, loss_fun, optimizer, train_dataloader, val_dataloader, nu
         model: The trained model
     """
     device = torch.device("mps" if torch.backends.mps.is_available() 
-                      else "cuda" if torch.cuda.is_available() 
+            else "cuda:4" if torch.cuda.is_available() 
                       else "cpu")
 
     model.to(device)
@@ -163,7 +163,8 @@ def train_model(model, loss_fun, optimizer, train_dataloader, val_dataloader, nu
         # validation: 
         model.eval()
         epoch_val_loss = 0
-        for batch_idx, batch in enumerate(val_dataloader):
+        batch_count_val = 0
+        for val_batch_idx, batch in enumerate(val_dataloader):
             with torch.no_grad():
                 # Forward pass
                 outputs = model(batch.to(device))
@@ -172,10 +173,11 @@ def train_model(model, loss_fun, optimizer, train_dataloader, val_dataloader, nu
                 
                 # Accumulate loss
                 epoch_val_loss += loss.item()
-                batch_count += 1
+                batch_count_val += 1
 
-                logger_handler.log_batch(loss, batch_idx, epoch, len(val_dataloader), 'val')
-        avg_epoch_val_loss = epoch_val_loss / batch_count
+                logger_handler.log_batch(loss, val_batch_idx, epoch, len(val_dataloader), 'val')
+
+        avg_epoch_val_loss = epoch_val_loss / batch_count_val
         # Calculate and log epoch metrics
         avg_epoch_loss = epoch_loss / batch_count
         logger_handler.log_epoch(
