@@ -20,7 +20,7 @@
             "input_dim": [6],
             "output_dim": [5,3],
             "pe_dim": 2,
-            "output_type": ["node"],
+            "output_type": ["node","node"],
             "output_heads": {
                 "node": {
                     "num_headlayers": 2,
@@ -41,7 +41,7 @@
             "dynamic_target": true
         },
         "Training": {
-            "num_epoch": 500,
+            "num_epoch": 100,
             "EarlyStopping": false,
             "Checkpoint": true,
             "checkpoint_warmup": 1,

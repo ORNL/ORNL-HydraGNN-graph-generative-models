@@ -137,12 +137,12 @@ def train_model(model, loss_fun, optimizer, train_dataloader, val_dataloader, nu
     )
     logger_handler.setup(model, config)
     
-    for epoch in range(num_epochs):
+    for epoch in tqdm.tqdm(range(num_epochs)):
         model.train()
         epoch_loss = 0
         batch_count = 0
         
-        for batch_idx, batch in tqdm.tqdm(enumerate(train_dataloader)):
+        for batch_idx, batch in enumerate(train_dataloader):
             # Forward pass
             outputs = model(batch.to(device))
             #outputs[1] = outputs[1] - batch.pos # remove the noisy structure
@@ -162,9 +162,8 @@ def train_model(model, loss_fun, optimizer, train_dataloader, val_dataloader, nu
 
         # validation: 
         model.eval()
-        epoch_loss = 0
         epoch_val_loss = 0
-        for batch_idx, batch in tqdm.tqdm(enumerate(val_dataloader)):
+        for batch_idx, batch in enumerate(val_dataloader):
             with torch.no_grad():
                 # Forward pass
                 outputs = model(batch.to(device))
@@ -174,7 +173,7 @@ def train_model(model, loss_fun, optimizer, train_dataloader, val_dataloader, nu
                 # Accumulate loss
                 epoch_val_loss += loss.item()
                 batch_count += 1
-        avg_epoch_val_loss = avg_epoch_val_loss / batch_count
+        avg_epoch_val_loss = epoch_val_loss / batch_count
         # Calculate and log epoch metrics
         avg_epoch_loss = epoch_loss / batch_count
         logger_handler.log_epoch(
@@ -235,7 +234,6 @@ def get_train_transform(dp: DiffusionProcess):
             [0, 6, 9], dtype=torch.int64, device=data.x.device
         ).unsqueeze(0)
         training_sample.x = x_targ
-        # training_sample.initial_pos = initial_pos
         training_sample.pos = data.pos # new atomistic positions
         training_sample.y = torch.hstack([data.x, initial_pos])
         return training_sample
