@@ -3,9 +3,9 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-from torch import Tensor, Union
+from torch import Tensor
 from torch_geometric.data import Data, Batch
-from typing import Optional, Callable
+from typing import Optional, Callable, Union
 from .equivariant_diffusion import \
     EquivariantDiffusionProcess, center_gravity
 from ..utils.diffusion_utils import create_noise_schedule, \

@@ -35,12 +35,12 @@ class ModelLoggerHandler:
             if hasattr(self.logger, 'watch'):
                 self.logger.watch(model, log_freq=100)
     
-    def log_batch(self, loss, batch_idx, epoch, total_batches):
+    def log_batch(self, loss, batch_idx, epoch, total_batches, tag='train'):
         """Log batch-level metrics."""
         if self.logger is not None and hasattr(self.logger, 'log'):
             metrics = {
-                "batch_loss": loss.item(),
-                "batch": batch_idx + epoch * total_batches
+                f"{tag} batch_loss": loss.item(),
+                f"{tag} batch": batch_idx + epoch * total_batches
             }
             self.logger.log(metrics)
     
@@ -158,7 +158,7 @@ def train_model(model, loss_fun, optimizer, train_dataloader, val_dataloader, nu
             batch_count += 1
             
             # Log batch metrics
-            logger_handler.log_batch(loss, batch_idx, epoch, len(train_dataloader))
+            logger_handler.log_batch(loss, batch_idx, epoch, len(train_dataloader), 'train')
 
         # validation: 
         model.eval()
@@ -173,6 +173,8 @@ def train_model(model, loss_fun, optimizer, train_dataloader, val_dataloader, nu
                 # Accumulate loss
                 epoch_val_loss += loss.item()
                 batch_count += 1
+
+                logger_handler.log_batch(loss, batch_idx, epoch, len(val_dataloader), 'val')
         avg_epoch_val_loss = epoch_val_loss / batch_count
         # Calculate and log epoch metrics
         avg_epoch_loss = epoch_loss / batch_count
