@@ -80,7 +80,7 @@ def train(args):
         config=config["NeuralNetwork"],
         verbosity=verbosity,
     )
-    print(model.module)
+
     # Define training optimizer and scheduler
     learning_rate = config["NeuralNetwork"]["Training"]["Optimizer"]["learning_rate"]
     optimizer = torch.optim.AdamW(model.parameters(), lr=.0001)
