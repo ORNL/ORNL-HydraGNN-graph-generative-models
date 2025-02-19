@@ -8,6 +8,8 @@ logs/
 serialized_dataset/
 models/*
 wandb/*
+wandb_remote/*
+tests/*
 notebooks/*
 
 
