@@ -22,9 +22,10 @@ def pred_fn(model, data, dp):
     noise_data.pos = atom_pos_noise
     return noise_data
 
+
 def load_model(args):
     # load the config
-    with open(os.path.join(args.run_name,'config.yaml'),'r') as f:
+    with open(os.path.join(args.run_name, "config.yaml"), "r") as f:
         config = yaml.safe_load(f)
     verbosity = config["Verbosity"]["value"]["level"]
     # Create the model from the config specifications
@@ -34,8 +35,14 @@ def load_model(args):
     )
     # Distribute the model across ranks (if necessary).
     # model = get_distributed_model(model, verbosity)
-    model.load_state_dict(torch.load(os.path.join(args.run_name,"checkpoints/model_best.pt"), map_location=torch.device('mps'))['model_state_dict'])
+    model.load_state_dict(
+        torch.load(
+            os.path.join(args.run_name, "checkpoints/model_best.pt"),
+            map_location=torch.device("mps"),
+        )["model_state_dict"]
+    )
     return config, model
+
 
 def generate(args):
     """
@@ -75,17 +82,20 @@ def generate(args):
     for i, gd in enumerate(gen_data_list):
         # postprocess by subtracting off CoM
         gd.pos = gd.pos - gd.pos.mean(dim=0, keepdim=True)
-        out_path = os.path.join('models','test','structures',f"gen_{i}.pdb")
+        out_path = os.path.join("models", "test", "structures", f"gen_{i}.pdb")
         du.write_pdb_file(gd, out_path)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # Create default log name if not specified.
     parser.add_argument("-g", "--num_gen", type=int, default=100)
-    parser.add_argument("-d", "--data_path", type=str, default='../examples/qm9/dataset')
-    parser.add_argument("-ds", "--diffusion_steps", type=int, default=100) 
-    parser.add_argument("-l", "--run_name", type=str, default='test')
+    parser.add_argument(
+        "-d", "--data_path", type=str, default="../examples/qm9/dataset"
+    )
+    parser.add_argument("-ds", "--diffusion_steps", type=int, default=100)
+    parser.add_argument("-l", "--run_name", type=str, default="test")
     # parser.add_argument("-m", "--model", type=str, help='path to the trained model' )
 
     # Store the arguments in args.
