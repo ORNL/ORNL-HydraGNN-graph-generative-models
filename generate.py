@@ -34,7 +34,7 @@ def load_model(args):
     )
     # Distribute the model across ranks (if necessary).
     # model = get_distributed_model(model, verbosity)
-    model.load_state_dict(torch.load(os.path.join(args.run_name,"checkpoints/model_best.pt"))['model_state_dict'])
+    model.load_state_dict(torch.load(os.path.join(args.run_name,"checkpoints/model_best.pt"), map_location=torch.device('mps'))['model_state_dict'])
     return config, model
 
 def generate(args):
