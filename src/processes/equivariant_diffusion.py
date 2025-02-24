@@ -120,10 +120,10 @@ class EquivariantDiffusionProcess(DiffusionProcess):
 
         # create a new data entry with samples, set y to preds
         data = dist_state.clone().detach_()
-        data.x = x_samples
-        data.pos = pos_samples
-        data.yx = x_noise
-        data.ypos = pos_noise
+        data.x = x_samples # noised atom features
+        data.pos = pos_samples # noised atom positions
+        data.x_t = x_noise # noise in atom features
+        data.ypos = pos_noise # noise in atom positions
         data.t = t
         data.x_mu = None
         data.x_sigma = None

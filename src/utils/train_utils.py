@@ -146,7 +146,7 @@ def train_model(model, loss_fun, optimizer, train_dataloader, val_dataloader, nu
             # Forward pass
             outputs = model(batch.to(device))
             #outputs[1] = outputs[1] - batch.pos # remove the noisy structure
-            loss = loss_fun(outputs, [batch.y[:, :6], batch.y[:, 6:]])
+            loss = loss_fun(outputs, [batch.y[:, :5], batch.y[:, 5:]])
             
             # Backward pass and optimization
             optimizer.zero_grad()
@@ -169,7 +169,7 @@ def train_model(model, loss_fun, optimizer, train_dataloader, val_dataloader, nu
                 # Forward pass
                 outputs = model(batch.to(device))
                 #outputs[1] = outputs[1] - batch.pos # remove the noisy structure
-                loss = loss_fun(outputs, [batch.y[:, :6], batch.y[:, 6:]])
+                loss = loss_fun(outputs, [batch.y[:, :5], batch.y[:, 5:]])
                 
                 # Accumulate loss
                 epoch_val_loss += loss.item()
@@ -222,6 +222,7 @@ def get_train_transform(dp: DiffusionProcess):
 
         # Only use atom type features
         data.x = data.x[:, :5].float()
+        initial_x = data.x.clone().float()
         initial_pos = data.pos.clone()
         # randomly sample a t
         t = random.randint(0, dp.timesteps - 1)
@@ -232,14 +233,17 @@ def get_train_transform(dp: DiffusionProcess):
 
         data, time_vec = insert_t(data, data.t, dp.timesteps)
 
-        x_targ = torch.hstack([data.x_probs, time_vec])
         training_sample = data.clone()
         training_sample.y_loc = torch.tensor(
-            [0, 6, 9], dtype=torch.int64, device=data.x.device
+            [0, 5, 8], dtype=torch.int64, device=data.x.device
         ).unsqueeze(0)
-        training_sample.x = x_targ
-        training_sample.pos = data.pos # new atomistic positions
-        training_sample.y = torch.hstack([data.x, initial_pos])
+
+        x_noised = torch.hstack([data.x_t, time_vec])
+        training_sample.x = x_noised
+
+        training_sample.pos = data.pos 
+        # "epsilon" parameterization
+        training_sample.y = torch.hstack([data.x_t - initial_x, data.pos - initial_pos])
         return training_sample
 
     return train_transform
