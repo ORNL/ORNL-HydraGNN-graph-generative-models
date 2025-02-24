@@ -216,6 +216,7 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
         # create a new data entry with samples, set y to preds
         data = dist_state.clone().detach_()
         data.x = x_t
+        data.x_t = dist_state['x_probs']
         data.pos = pos_samples
         data.ypos = pos_noise
         data.t = dist_state['t']
