@@ -39,9 +39,11 @@ def train(args):
     voi = config["NeuralNetwork"]["Variables_of_interest"]
 
     # Create a MarginalDiffusionProcess object.
-    dp = MarginalDiffusionProcess(
-        args.diffusion_steps, marg_dist=du.get_marg_dist(root_path=args.data_path)
-    )
+    # dp = MarginalDiffusionProcess(
+    #     args.diffusion_steps, marg_dist=du.get_marg_dist(root_path=args.data_path)
+    # )
+    dp = EquivariantDiffusionProcess(args.diffusion_steps)
+
     # Create a training transform function for the QM9 dataset.
     train_tform = get_train_transform(dp)
 
@@ -92,7 +94,7 @@ def train(args):
     def loss(outputs, targets):
         l1 = torch.nn.functional.mse_loss(outputs[1], targets[1])
         l2 = torch.nn.functional.cross_entropy(outputs[0], targets[0])
-        return 4 * l1 + l2
+        return 4 * l1 + 0
 
     # Run training with the given model and dataset.
     model = train_model(
