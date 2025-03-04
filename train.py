@@ -39,10 +39,10 @@ def train(args):
     voi = config["NeuralNetwork"]["Variables_of_interest"]
 
     # Create a MarginalDiffusionProcess object.
-    # dp = MarginalDiffusionProcess(
-    #     args.diffusion_steps, marg_dist=du.get_marg_dist(root_path=args.data_path)
-    # )
-    dp = EquivariantDiffusionProcess(args.diffusion_steps)
+    dp = MarginalDiffusionProcess(
+        args.diffusion_steps, marg_dist=du.get_marg_dist(root_path=args.data_path)
+    )
+    # dp = EquivariantDiffusionProcess(args.diffusion_steps)
 
     # Create a training transform function for the QM9 dataset.
     train_tform = get_train_transform(dp)
@@ -85,16 +85,16 @@ def train(args):
 
     # Define training optimizer and scheduler
     learning_rate = config["NeuralNetwork"]["Training"]["Optimizer"]["learning_rate"]
-    optimizer = torch.optim.AdamW(model.parameters(), lr=.0001)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=.00001)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=5, min_lr=0.00001
     )
 
     # TODO move this to train_utils.py, name specific
     def loss(outputs, targets):
-        l1 = torch.nn.functional.mse_loss(outputs[1], targets[1])
-        l2 = torch.nn.functional.cross_entropy(outputs[0], targets[0])
-        return 4 * l1 + 0
+        pos_loss = torch.nn.functional.mse_loss(outputs[1], targets[1])
+        atom_loss = torch.nn.functional.cross_entropy(outputs[0], targets[0])
+        return pos_loss, atom_loss
 
     # Run training with the given model and dataset.
     model = train_model(

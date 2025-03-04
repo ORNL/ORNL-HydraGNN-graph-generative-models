@@ -16,7 +16,7 @@ def pred_fn(model, data, dp):
     out = model(data_tx)
     atom_ident_noise, atom_pos_noise = out[0], out[1]
     #atom_pos_noise = atom_pos_noise - data.pos
-    #atom_pos_noise = atom_pos_noise - torch.mean(atom_pos_noise, dim=0)
+    atom_pos_noise = atom_pos_noise - torch.mean(atom_pos_noise, dim=0)
     noise_data = data.clone().detach_()
     noise_data.x = atom_ident_noise
     noise_data.pos = atom_pos_noise

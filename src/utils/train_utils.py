@@ -148,15 +148,15 @@ class ModelLoggerHandler:
 def get_device():
     """
     Determine the appropriate device (MPS, CUDA, or CPU) for training.
-    
+
     Returns:
     --------
         device: The torch device to use for training
     """
     return torch.device(
-        "mps" 
+        "mps"
         if torch.backends.mps.is_available()
-        else "cuda:4" 
+        else "cuda:4"
         if torch.cuda.is_available()
         else "cpu"
     )
@@ -165,7 +165,7 @@ def get_device():
 def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, epoch):
     """
     Train the model for one epoch.
-    
+
     Args:
     -----
         model (torch.nn.Module): The model to be trained
@@ -175,7 +175,7 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
         device (torch.device): The device to run training on
         logger_handler (ModelLoggerHandler): Logger for tracking metrics
         epoch (int): Current epoch number
-        
+
     Returns:
     --------
         tuple: (epoch_loss, epoch_pos_loss, epoch_atom_loss, batch_count)
@@ -209,14 +209,14 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
         logger_handler.log_batch(
             loss, batch_idx, epoch, len(dataloader), "train", loss_components
         )
-    
+
     return epoch_loss, epoch_pos_loss, epoch_atom_loss, batch_count
 
 
 def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch):
     """
     Validate the model for one epoch.
-    
+
     Args:
     -----
         model (torch.nn.Module): The model to be validated
@@ -225,7 +225,7 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch):
         device (torch.device): The device to run validation on
         logger_handler (ModelLoggerHandler): Logger for tracking metrics
         epoch (int): Current epoch number
-        
+
     Returns:
     --------
         tuple: (epoch_val_loss, epoch_val_pos_loss, epoch_val_atom_loss, batch_count_val)
@@ -240,9 +240,7 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch):
         with torch.no_grad():
             # Forward pass
             outputs = model(batch.to(device))
-            loss_pos, loss_atom = loss_fun(
-                outputs, [batch.y[:, :5], batch.y[:, 5:]]
-            )
+            loss_pos, loss_atom = loss_fun(outputs, [batch.y[:, :5], batch.y[:, 5:]])
             loss = loss_pos  # matching the training loss
 
             # Accumulate losses
@@ -264,16 +262,14 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch):
                 "val",
                 val_loss_components,
             )
-    
+
     return epoch_val_loss, epoch_val_pos_loss, epoch_val_atom_loss, batch_count_val
 
 
-def log_epoch_metrics(
-    logger_handler, epoch, train_losses, val_losses, optimizer
-):
+def log_epoch_metrics(logger_handler, epoch, train_losses, val_losses, optimizer):
     """
     Calculate and log metrics for the epoch.
-    
+
     Args:
     -----
         logger_handler (ModelLoggerHandler): Logger for tracking metrics
@@ -281,14 +277,19 @@ def log_epoch_metrics(
         train_losses (tuple): (epoch_loss, epoch_pos_loss, epoch_atom_loss, batch_count)
         val_losses (tuple): (epoch_val_loss, epoch_val_pos_loss, epoch_val_atom_loss, batch_count_val)
         optimizer (torch.optim.Optimizer): The optimizer used for training
-        
+
     Returns:
     --------
         float: The average epoch loss
     """
     epoch_loss, epoch_pos_loss, epoch_atom_loss, batch_count = train_losses
-    epoch_val_loss, epoch_val_pos_loss, epoch_val_atom_loss, batch_count_val = val_losses
-    
+    (
+        epoch_val_loss,
+        epoch_val_pos_loss,
+        epoch_val_atom_loss,
+        batch_count_val,
+    ) = val_losses
+
     # Calculate average losses
     avg_epoch_val_loss = epoch_val_loss / batch_count_val
     avg_epoch_loss = epoch_loss / batch_count
@@ -315,7 +316,7 @@ def log_epoch_metrics(
         optimizer.param_groups[0]["lr"],
         loss_component_avgs,
     )
-    
+
     return avg_epoch_loss
 
 
@@ -355,7 +356,7 @@ def train_model(
     """
     device = get_device()
     model.to(device)
-    
+
     # Initialize logger handler
     logger_handler = ModelLoggerHandler(
         logger=logger, model_name=model_name, save_freq=save_freq, save_best=save_best
@@ -367,17 +368,17 @@ def train_model(
         train_losses = train_epoch(
             model, loss_fun, optimizer, train_dataloader, device, logger_handler, epoch
         )
-        
+
         # Validate the model
         val_losses = validate_epoch(
             model, loss_fun, val_dataloader, device, logger_handler, epoch
         )
-        
+
         # Log the epoch metrics
         avg_epoch_loss = log_epoch_metrics(
             logger_handler, epoch, train_losses, val_losses, optimizer
         )
-        
+
         # Handle end of epoch (saving checkpoints)
         logger_handler.handle_epoch_end(epoch, model, optimizer, avg_epoch_loss)
 
