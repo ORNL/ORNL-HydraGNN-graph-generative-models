@@ -256,7 +256,7 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
                     pos_sigma=torch.ones((d, pos_dim), device=state_dims.device),
                     num_nodes=d,
                     x=torch.zeros((d, x_dim), device=state_dims.device), # include these as a hack w/ Batch.from_data_list()
-                    pos=torch.zeros((d, x_dim), device=state_dims.device)   # need for the eventual batch.to_data_list() call
+                    pos=torch.zeros((d, pos_dim), device=state_dims.device)   # need for the eventual batch.to_data_list() call
                 )
             )
         batch = Batch.from_data_list(batch)
@@ -285,6 +285,7 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
         # Denoise position parameters
         clip_value = 1e-3
         alpha_ts = np.max([clip_value, self.alphas[t]/self.alphas[s]])
+        # alpha_ts = self.alphas[t]/self.alphas[s]
         var_t = 1. - self.alphas[t]**2
         var_s = 1. - self.alphas[s]**2
         var_ts = var_t - (alpha_ts**2)*var_s

@@ -7,15 +7,15 @@ from hydragnn.utils.distributed import get_distributed_model
 
 from src.utils import diffusion_utils as du
 from src.processes.marginal_diffusion import MarginalDiffusionProcess
-from src.utils.train_utils import insert_t
+from src.utils.train_utils import insert_t, postprocess_model_outputs
 
 
 def pred_fn(model, data, dp):
     data_tx, _ = insert_t(data, data.t, dp.timesteps)
     model.eval()
-    out = model(data_tx)
+    out = postprocess_model_outputs(model(data_tx), data)
     atom_ident_noise, atom_pos_noise = out[0], out[1]
-    #atom_pos_noise = atom_pos_noise - data.pos
+    atom_pos_noise = atom_pos_noise - data.pos
     atom_pos_noise = atom_pos_noise - torch.mean(atom_pos_noise, dim=0)
     noise_data = data.clone().detach_()
     noise_data.x = atom_ident_noise

@@ -161,6 +161,12 @@ def get_device():
         else "cpu"
     )
 
+def postprocess_model_outputs(outputs, data):   
+    # Hoogeboom claims to take positional output and subtract the noised positions, z_t
+    outputs[1] = outputs[1] - data.pos
+    # then, substract the center of mass
+    outputs[1] = outputs[1] - torch.mean(outputs[1], dim=0)
+    return outputs
 
 def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, epoch):
     """
@@ -187,15 +193,19 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
     batch_count = 0
 
     for batch_idx, batch in enumerate(dataloader):
+        optimizer.zero_grad()
         # Forward pass
-        outputs = model(batch.to(device))
+        batch = batch.to(device)
+        outputs = postprocess_model_outputs(model(batch), batch)
+        # then, compute the loss
         loss_pos, loss_atom = loss_fun(outputs, [batch.y[:, :5], batch.y[:, 5:]])
         # Track both losses but only use position loss for optimization
         loss = loss_pos  # only work on positional loss for now
 
         # Backward pass and optimization
-        optimizer.zero_grad()
         loss.backward()
+        # Apply gradient clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
 
         # Accumulate losses
@@ -239,7 +249,9 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch):
     for val_batch_idx, batch in enumerate(dataloader):
         with torch.no_grad():
             # Forward pass
-            outputs = model(batch.to(device))
+            batch = batch.to(device)
+            outputs = postprocess_model_outputs(model(batch), batch)
+
             loss_pos, loss_atom = loss_fun(outputs, [batch.y[:, :5], batch.y[:, 5:]])
             loss = loss_pos  # matching the training loss
 
@@ -332,6 +344,7 @@ def train_model(
     save_freq=1,
     save_best=True,
     model_name="model",
+    scheduler=None,
 ):
     """
     Trains a given model using the provided loss function, optimizer, and data loader.
@@ -349,6 +362,7 @@ def train_model(
         save_freq (int): Frequency of saving model checkpoints (in epochs).
         save_best (bool): Whether to save the best model based on loss.
         model_name (str): Base name for saved model files.
+        scheduler (torch.optim.lr_scheduler._LRScheduler, optional): Learning rate scheduler.
 
     Returns:
     --------
@@ -378,7 +392,15 @@ def train_model(
         avg_epoch_loss = log_epoch_metrics(
             logger_handler, epoch, train_losses, val_losses, optimizer
         )
-
+        
+        # Update learning rate with scheduler if provided
+        if scheduler is not None:
+            # For ReduceLROnPlateau, step needs the validation loss
+            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                scheduler.step(val_losses[0] / val_losses[3])  # avg_val_loss
+            else:
+                scheduler.step()
+                
         # Handle end of epoch (saving checkpoints)
         logger_handler.handle_epoch_end(epoch, model, optimizer, avg_epoch_loss)
 
@@ -412,29 +434,34 @@ def get_train_transform(dp: DiffusionProcess):
 
         # Only use atom type features
         data.x = data.x[:, :5].float()
-        initial_x = data.x.clone().float()
-        initial_pos = data.pos.clone()
 
         # randomly sample a t
         t = random.randint(0, dp.timesteps - 1)
-        data = dp.forward_process_sample(
+
+        # noise the data 
+        noised_data = dp.forward_process_sample(
             data, t
-        )  # should be attaching t to node features
+        )  
+        # the noised data object has the following attributes:
+        # - x: noised atom types 
+        # - x_t: probability distribution of atom types 
+        # - pos: noised positions (eg z_t^(x) from Hoogeboom et al.)
+        # - ypos: epsilon for the positions, with center of gravity removed
+        # - t: the time step t
+        # - pos_mu: set to None
+        # - pos_sigma: set to None
 
-        data, time_vec = insert_t(data, data.t, dp.timesteps)
+        # insert time t into the node features
+        noised_data, time_vec = insert_t(noised_data, data.t, dp.timesteps)
 
-        training_sample = data.clone()
-        training_sample.y_loc = torch.tensor(
+        # set y_loc for hydragnn reasons
+        noised_data.y_loc = torch.tensor(
             [0, 5, 8], dtype=torch.int64, device=data.x.device
         ).unsqueeze(0)
 
-        x_noised = torch.hstack([data.x_t, time_vec])
-        training_sample.x = x_noised
-
-        training_sample.pos = data.pos
-        # "epsilon" parameterization
-        training_sample.y = torch.hstack([data.x_t - initial_x, data.pos - initial_pos])
-        return training_sample
+        # assign y values for "epsilon" parameterization
+        noised_data.y = torch.hstack([data.x, noised_data.ypos])
+        return noised_data
 
     return train_transform
 
