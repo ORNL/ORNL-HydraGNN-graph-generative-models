@@ -3,7 +3,7 @@ import tqdm
 import torch
 import wandb
 
-from torch_geometric.data import Data
+from torch_geometric.data import Data, Batch
 
 from src.processes.diffusion import DiffusionProcess
 
@@ -162,13 +162,13 @@ def get_device():
     )
 
 def postprocess_model_outputs(outputs, data):   
-    # Hoogeboom claims to take positional output and subtract the noised positions, z_t
-    outputs[1] = outputs[1] - data.pos
-    # then, substract the center of mass
+    # The model should directly predict the noise (epsilon) that was added
+    # No need to subtract positions as that would create a mismatch with our training targets
+    # We only need to ensure the center of mass is zero by centering the predictions
     outputs[1] = outputs[1] - torch.mean(outputs[1], dim=0)
     return outputs
 
-def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, epoch):
+def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, epoch, transform_fn=None):
     """
     Train the model for one epoch.
 
@@ -181,6 +181,7 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
         device (torch.device): The device to run training on
         logger_handler (ModelLoggerHandler): Logger for tracking metrics
         epoch (int): Current epoch number
+        transform_fn (callable, optional): Transform function to apply to each batch
 
     Returns:
     --------
@@ -194,6 +195,12 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
 
     for batch_idx, batch in enumerate(dataloader):
         optimizer.zero_grad()
+        # Apply transform to add fresh noise if transform function is provided
+        if transform_fn is not None:
+            # For batches we need to transform each sample individually
+            transformed_samples = [transform_fn(data.clone()) for data in batch.to_data_list()]
+            batch = Batch.from_data_list(transformed_samples)
+
         # Forward pass
         batch = batch.to(device)
         outputs = postprocess_model_outputs(model(batch), batch)
@@ -214,8 +221,20 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
         epoch_atom_loss += loss_atom.item()
         batch_count += 1
 
-        # Log batch metrics including separate loss components
-        loss_components = {"position_loss": loss_pos, "atom_type_loss": loss_atom}
+        # Calculate norms to monitor predicted vs actual noise scale
+        with torch.no_grad():
+            pred_noise_norm = torch.norm(outputs[1], dim=1).mean().item()
+            actual_noise_norm = torch.norm(batch.y[:, 5:], dim=1).mean().item()
+            noise_scale_ratio = pred_noise_norm / (actual_noise_norm + 1e-6)  # avoid division by zero
+        
+        # Log batch metrics including separate loss components and noise norms
+        loss_components = {
+            "position_loss": loss_pos, 
+            "atom_type_loss": loss_atom,
+            "pred_noise_norm": pred_noise_norm,
+            "actual_noise_norm": actual_noise_norm,
+            "noise_scale_ratio": noise_scale_ratio
+        }
         logger_handler.log_batch(
             loss, batch_idx, epoch, len(dataloader), "train", loss_components
         )
@@ -223,7 +242,7 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
     return epoch_loss, epoch_pos_loss, epoch_atom_loss, batch_count
 
 
-def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch):
+def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, transform_fn=None):
     """
     Validate the model for one epoch.
 
@@ -235,6 +254,7 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch):
         device (torch.device): The device to run validation on
         logger_handler (ModelLoggerHandler): Logger for tracking metrics
         epoch (int): Current epoch number
+        transform_fn (callable, optional): Transform function to apply to each batch
 
     Returns:
     --------
@@ -248,6 +268,12 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch):
 
     for val_batch_idx, batch in enumerate(dataloader):
         with torch.no_grad():
+            # Apply transform to add fresh noise if transform function is provided
+            if transform_fn is not None:
+                # For batches we need to transform each sample individually
+                transformed_samples = [transform_fn(data.clone()) for data in batch.to_data_list()]
+                batch = Batch.from_data_list(transformed_samples)
+            
             # Forward pass
             batch = batch.to(device)
             outputs = postprocess_model_outputs(model(batch), batch)
@@ -261,10 +287,18 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch):
             epoch_val_atom_loss += loss_atom.item()
             batch_count_val += 1
 
-            # Log batch metrics including loss components
+            # Calculate norms to monitor predicted vs actual noise scale
+            pred_noise_norm = torch.norm(outputs[1], dim=1).mean().item()
+            actual_noise_norm = torch.norm(batch.y[:, 5:], dim=1).mean().item()
+            noise_scale_ratio = pred_noise_norm / (actual_noise_norm + 1e-6)  # avoid division by zero
+            
+            # Log batch metrics including loss components and noise norms
             val_loss_components = {
                 "position_loss": loss_pos,
                 "atom_type_loss": loss_atom,
+                "pred_noise_norm": pred_noise_norm,
+                "actual_noise_norm": actual_noise_norm,
+                "noise_scale_ratio": noise_scale_ratio
             }
             logger_handler.log_batch(
                 loss,
@@ -345,6 +379,7 @@ def train_model(
     save_best=True,
     model_name="model",
     scheduler=None,
+    train_transform=None
 ):
     """
     Trains a given model using the provided loss function, optimizer, and data loader.
@@ -363,6 +398,7 @@ def train_model(
         save_best (bool): Whether to save the best model based on loss.
         model_name (str): Base name for saved model files.
         scheduler (torch.optim.lr_scheduler._LRScheduler, optional): Learning rate scheduler.
+        train_transform (callable, optional): Transform function to apply to each batch.
 
     Returns:
     --------
@@ -376,16 +412,16 @@ def train_model(
         logger=logger, model_name=model_name, save_freq=save_freq, save_best=save_best
     )
     logger_handler.setup(model, config)
-
+    
     for epoch in tqdm.tqdm(range(num_epochs)):
         # Train for one epoch
         train_losses = train_epoch(
-            model, loss_fun, optimizer, train_dataloader, device, logger_handler, epoch
+            model, loss_fun, optimizer, train_dataloader, device, logger_handler, epoch, train_transform
         )
 
         # Validate the model
         val_losses = validate_epoch(
-            model, loss_fun, val_dataloader, device, logger_handler, epoch
+            model, loss_fun, val_dataloader, device, logger_handler, epoch, train_transform
         )
 
         # Log the epoch metrics
@@ -464,6 +500,33 @@ def get_train_transform(dp: DiffusionProcess):
         return noised_data
 
     return train_transform
+
+def get_hydra_transform():
+    """
+    Returns a training transform function for the QM9 dataset. Encompasses
+    the forward noising process, time insertion, and formatting for the
+    denoising model.
+
+    Args:
+    -----
+    dp (DiffusionProcess):
+        The diffusion process object.
+    head_types (list):
+        The types of heads in the denoising model.
+    out_indices (list):
+        The output indices of the denoising model.
+    graph_feature_dim (list):
+        The dimensions of the graph features.
+    node_feature_dim (list):
+        The dimensions of the node features.
+    """
+    def hydra_transform(data: Data):
+        data.y_loc = torch.tensor(
+            [0, 5, 8], dtype=torch.int64, device=data.x.device
+        ).unsqueeze(0)
+        return data
+
+    return hydra_transform
 
 
 def insert_t(data: Data, t: int, T: int):

@@ -18,7 +18,7 @@ from src.utils import diffusion_utils as du
 from src.processes.diffusion import DiffusionProcess
 from src.processes.equivariant_diffusion import EquivariantDiffusionProcess
 from src.processes.marginal_diffusion import MarginalDiffusionProcess
-from src.utils.train_utils import train_model, get_train_transform, insert_t
+from src.utils.train_utils import train_model, get_train_transform, get_hydra_transform, insert_t
 from src.utils.data_utils import get_marg_dist, FullyConnectGraph
 
 
@@ -48,11 +48,11 @@ def train(args):
 
     # Create a training transform function for the QM9 dataset.
     train_tform = get_train_transform(dp)
+    hydra_transform = get_hydra_transform()
 
-    # Load the QM9 dataset from torch with the pre-transform, pre-filter, and train transform.
-    # TODO should be generalized, a la fine tuning
-    dataset = torch_geometric.datasets.QM9(root=args.data_path, transform=train_tform)
-    # dataset = torch_geometric.datasets.QM9(root=args.data_path)
+    # Load the QM9 dataset from torch WITHOUT transform (we'll apply it during training)
+    # This prevents caching of transformed data with fixed noise
+    dataset = torch_geometric.datasets.QM9(root=args.data_path, transform=hydra_transform)
 
     # Limit the number of samples if specified.
     if args.samples != None:
@@ -62,6 +62,9 @@ def train(args):
 
     # Make all graphs fully connected.
     dataset = [FullyConnectGraph()(data) for data in dataset]  # Apply to all graphs
+    
+    # Store the transform function so we can apply it during training
+    #config["transform_function"] = train_tform
     # datum = dataset[0]
     # print(datum)
     # print("X: ", datum.x)
@@ -128,6 +131,7 @@ def train(args):
         config["NeuralNetwork"]["Training"]["num_epoch"],
         logger=wandb.run,
         scheduler=scheduler,
+        train_transform=train_tform
     )
 
 
