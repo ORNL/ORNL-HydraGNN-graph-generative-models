@@ -226,6 +226,15 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
             pred_noise_norm = torch.norm(outputs[1], dim=1).mean().item()
             actual_noise_norm = torch.norm(batch.y[:, 5:], dim=1).mean().item()
             noise_scale_ratio = pred_noise_norm / (actual_noise_norm + 1e-6)  # avoid division by zero
+            
+            # Try to get norm loss components from the global norm_losses dict in train.py
+            try:
+                import train
+                pos_mse_loss = train.norm_losses.get('pos_mse_loss', loss_pos.item())
+                norm_constraint_loss = train.norm_losses.get('norm_constraint_loss', 0.0)
+            except (ImportError, AttributeError):
+                pos_mse_loss = loss_pos.item()
+                norm_constraint_loss = 0.0
         
         # Log batch metrics including separate loss components and noise norms
         loss_components = {
@@ -233,7 +242,9 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
             "atom_type_loss": loss_atom,
             "pred_noise_norm": pred_noise_norm,
             "actual_noise_norm": actual_noise_norm,
-            "noise_scale_ratio": noise_scale_ratio
+            "noise_scale_ratio": noise_scale_ratio,
+            "pos_mse_loss": pos_mse_loss,
+            "norm_constraint_loss": norm_constraint_loss
         }
         logger_handler.log_batch(
             loss, batch_idx, epoch, len(dataloader), "train", loss_components
@@ -292,13 +303,24 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
             actual_noise_norm = torch.norm(batch.y[:, 5:], dim=1).mean().item()
             noise_scale_ratio = pred_noise_norm / (actual_noise_norm + 1e-6)  # avoid division by zero
             
+            # Try to get norm loss components from the global norm_losses dict in train.py
+            try:
+                import train
+                pos_mse_loss = train.norm_losses.get('pos_mse_loss', loss_pos.item())
+                norm_constraint_loss = train.norm_losses.get('norm_constraint_loss', 0.0)
+            except (ImportError, AttributeError):
+                pos_mse_loss = loss_pos.item()
+                norm_constraint_loss = 0.0
+            
             # Log batch metrics including loss components and noise norms
             val_loss_components = {
                 "position_loss": loss_pos,
                 "atom_type_loss": loss_atom,
                 "pred_noise_norm": pred_noise_norm,
                 "actual_noise_norm": actual_noise_norm,
-                "noise_scale_ratio": noise_scale_ratio
+                "noise_scale_ratio": noise_scale_ratio,
+                "pos_mse_loss": pos_mse_loss,
+                "norm_constraint_loss": norm_constraint_loss
             }
             logger_handler.log_batch(
                 loss,

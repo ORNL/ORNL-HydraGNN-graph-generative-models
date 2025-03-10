@@ -115,9 +115,35 @@ def train(args):
         optimizer, mode="min", factor=0.5, patience=5, min_lr=0.00001
     )
 
+    # Store norm loss components for monitoring
+    norm_losses = {}
+    
     # TODO move this to train_utils.py, name specific
     def loss(outputs, targets):
-        pos_loss = torch.nn.functional.mse_loss(outputs[1], targets[1])
+        # Basic MSE loss for positions
+        pos_mse_loss = torch.nn.functional.mse_loss(outputs[1], targets[1])
+        
+        # Add norm constraint to ensure predictions have appropriate scale
+        # Calculate average norm of predicted and target noise
+        pred_norm = torch.norm(outputs[1], dim=1).mean()
+        target_norm = torch.norm(targets[1], dim=1).mean()
+        
+        # Norm constraint: penalize deviation from expected norm
+        norm_constraint_weight = 1.0  # Adjust this weight as needed
+        norm_constraint_loss = torch.abs(pred_norm - target_norm)
+        
+        # Combined position loss
+        pos_loss = pos_mse_loss + norm_constraint_weight * norm_constraint_loss
+        
+        # Update the global norm_losses dictionary for monitoring
+        global norm_losses
+        norm_losses = {
+            'pos_mse_loss': pos_mse_loss.item(),
+            'norm_constraint_loss': norm_constraint_loss.item(),
+            'pred_norm': pred_norm.item(),
+            'target_norm': target_norm.item()
+        }
+        
         atom_loss = torch.nn.functional.cross_entropy(outputs[0], targets[0])
         return pos_loss, atom_loss
 
