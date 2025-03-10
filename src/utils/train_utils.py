@@ -9,10 +9,6 @@ from src.processes.diffusion import DiffusionProcess
 from src.utils.logging_utils import ModelLoggerHandler
 
 
-# Global dictionary to store norm loss components for monitoring
-norm_losses: Dict[str, float] = {}
-
-
 def diffusion_loss(outputs, targets):
     """
     Loss function for graph diffusion models with norm constraint.
@@ -23,7 +19,7 @@ def diffusion_loss(outputs, targets):
         targets: Target values [atom_targets, position_targets]
         
     Returns:
-        Tuple of (position_loss, atom_type_loss)
+        Tuple of (position_loss, atom_type_loss, metrics_dict)
     """
     # Basic MSE loss for positions
     pos_mse_loss = torch.nn.functional.mse_loss(outputs[1], targets[1])
@@ -40,19 +36,18 @@ def diffusion_loss(outputs, targets):
     # Combined position loss
     pos_loss = pos_mse_loss + norm_constraint_weight * norm_constraint_loss
     
-    # Update the global norm_losses dictionary for monitoring
-    global norm_losses
-    norm_losses = {
+    # Cross entropy loss for atom types
+    atom_loss = torch.nn.functional.cross_entropy(outputs[0], targets[0])
+    
+    # Create a dictionary of metrics to track
+    metrics = {
         'pos_mse_loss': pos_mse_loss.item(),
         'norm_constraint_loss': norm_constraint_loss.item(),
         'pred_norm': pred_norm.item(),
         'target_norm': target_norm.item()
     }
     
-    # Cross entropy loss for atom types
-    atom_loss = torch.nn.functional.cross_entropy(outputs[0], targets[0])
-    
-    return pos_loss, atom_loss
+    return pos_loss, atom_loss, metrics
 
 
 def get_device():
@@ -115,7 +110,7 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
         batch = batch.to(device)
         outputs = postprocess_model_outputs(model(batch), batch)
         # then, compute the loss
-        loss_pos, loss_atom = loss_fun(outputs, [batch.y[:, :5], batch.y[:, 5:]])
+        loss_pos, loss_atom, loss_metrics = loss_fun(outputs, [batch.y[:, :5], batch.y[:, 5:]])
         # Track both losses but only use position loss for optimization
         loss = loss_pos  # only work on positional loss for now
 
@@ -136,10 +131,6 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
             pred_noise_norm = torch.norm(outputs[1], dim=1).mean().item()
             actual_noise_norm = torch.norm(batch.y[:, 5:], dim=1).mean().item()
             noise_scale_ratio = pred_noise_norm / (actual_noise_norm + 1e-6)  # avoid division by zero
-            
-            # Get norm loss components from our global norm_losses dict
-            pos_mse_loss = norm_losses.get('pos_mse_loss', loss_pos.item())
-            norm_constraint_loss = norm_losses.get('norm_constraint_loss', 0.0)
         
         # Log batch metrics including separate loss components and noise norms
         loss_components = {
@@ -148,8 +139,8 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
             "pred_noise_norm": pred_noise_norm,
             "actual_noise_norm": actual_noise_norm,
             "noise_scale_ratio": noise_scale_ratio,
-            "pos_mse_loss": pos_mse_loss,
-            "norm_constraint_loss": norm_constraint_loss
+            "pos_mse_loss": loss_metrics['pos_mse_loss'],
+            "norm_constraint_loss": loss_metrics['norm_constraint_loss']
         }
         logger_handler.log_batch(
             loss, batch_idx, epoch, len(dataloader), "train", loss_components
@@ -194,7 +185,7 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
             batch = batch.to(device)
             outputs = postprocess_model_outputs(model(batch), batch)
 
-            loss_pos, loss_atom = loss_fun(outputs, [batch.y[:, :5], batch.y[:, 5:]])
+            loss_pos, loss_atom, loss_metrics = loss_fun(outputs, [batch.y[:, :5], batch.y[:, 5:]])
             loss = loss_pos  # matching the training loss
 
             # Accumulate losses
@@ -208,10 +199,6 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
             actual_noise_norm = torch.norm(batch.y[:, 5:], dim=1).mean().item()
             noise_scale_ratio = pred_noise_norm / (actual_noise_norm + 1e-6)  # avoid division by zero
             
-            # Get norm loss components from our global norm_losses dict
-            pos_mse_loss = norm_losses.get('pos_mse_loss', loss_pos.item())
-            norm_constraint_loss = norm_losses.get('norm_constraint_loss', 0.0)
-            
             # Log batch metrics including loss components and noise norms
             val_loss_components = {
                 "position_loss": loss_pos,
@@ -219,8 +206,8 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
                 "pred_noise_norm": pred_noise_norm,
                 "actual_noise_norm": actual_noise_norm,
                 "noise_scale_ratio": noise_scale_ratio,
-                "pos_mse_loss": pos_mse_loss,
-                "norm_constraint_loss": norm_constraint_loss
+                "pos_mse_loss": loss_metrics['pos_mse_loss'],
+                "norm_constraint_loss": loss_metrics['norm_constraint_loss']
             }
             logger_handler.log_batch(
                 loss,
