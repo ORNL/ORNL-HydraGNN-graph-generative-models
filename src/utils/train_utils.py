@@ -1,148 +1,58 @@
 import os, random
 import tqdm
 import torch
-import wandb
 
 from torch_geometric.data import Data, Batch
+from typing import Dict, Tuple, Any, List, Optional
 
 from src.processes.diffusion import DiffusionProcess
+from src.utils.logging_utils import ModelLoggerHandler
 
 
-class ModelLoggerHandler:
+# Global dictionary to store norm loss components for monitoring
+norm_losses: Dict[str, float] = {}
+
+
+def diffusion_loss(outputs, targets):
     """
-    Handles model logging and saving operations during training.
+    Loss function for graph diffusion models with norm constraint.
+    Computes positional loss with norm constraint and atom type loss.
+    
+    Args:
+        outputs: Model outputs [atom_predictions, position_predictions]
+        targets: Target values [atom_targets, position_targets]
+        
+    Returns:
+        Tuple of (position_loss, atom_type_loss)
     """
-
-    def __init__(self, logger=None, model_name="model", save_freq=1, save_best=True):
-        self.logger = logger
-        self.model_name = model_name
-        self.save_freq = save_freq
-        self.save_best = save_best
-        self.best_loss = float("inf")
-
-        # Setup save directory if using wandb
-        if isinstance(logger, type(wandb.run)):
-            self.save_dir = os.path.join(wandb.run.dir, "checkpoints")
-            os.makedirs(self.save_dir, exist_ok=True)
-        else:
-            self.save_dir = "."
-
-    def setup(self, model, config=None):
-        """Initialize logger with config and model watching."""
-        if self.logger is not None and config is not None:
-            if hasattr(self.logger, "config"):
-                for key, value in config.items():
-                    self.logger.config[key] = value
-
-            if hasattr(self.logger, "watch"):
-                self.logger.watch(model, log_freq=100)
-
-    def log_batch(
-        self, loss, batch_idx, epoch, total_batches, tag="train", loss_components=None
-    ):
-        """Log batch-level metrics with optional individual loss components.
-
-        Args:
-            loss: The total loss value
-            batch_idx: Current batch index
-            epoch: Current epoch
-            total_batches: Total number of batches per epoch
-            tag: Tag to differentiate train/val metrics
-            loss_components: Dictionary of individual loss components to log
-        """
-        if self.logger is not None and hasattr(self.logger, "log"):
-            metrics = {
-                f"{tag} batch_loss": loss.item(),
-                f"{tag} batch": batch_idx + epoch * total_batches,
-            }
-
-            # Add individual loss components if provided
-            if loss_components is not None:
-                for name, value in loss_components.items():
-                    metrics[f"{tag} {name}"] = (
-                        value.item() if torch.is_tensor(value) else value
-                    )
-
-            self.logger.log(metrics)
-
-    def log_epoch(
-        self, epoch, avg_loss, avg_val_loss, learning_rate, loss_component_avgs=None
-    ):
-        """Log epoch-level metrics with optional individual loss component averages.
-
-        Args:
-            epoch: Current epoch
-            avg_loss: Average total loss for the epoch
-            avg_val_loss: Average validation loss for the epoch
-            learning_rate: Current learning rate
-            loss_component_avgs: Dictionary of average individual loss components
-        """
-        if self.logger is not None and hasattr(self.logger, "log"):
-            metrics = {
-                "epoch": epoch + 1,
-                "epoch_loss": avg_loss,
-                "learning_rate": learning_rate,
-                "avg_val_loss": avg_val_loss,
-            }
-
-            # Add individual loss component averages if provided
-            if loss_component_avgs is not None:
-                for name, value in loss_component_avgs.items():
-                    metrics[f"avg_{name}"] = value
-
-            self.logger.log(metrics)
-
-    def save_checkpoint(self, epoch, model, optimizer, loss, is_best=False):
-        """Save model checkpoint and upload to wandb if available."""
-        if self.logger is None:
-            return
-
-        # Determine checkpoint name
-        checkpoint_name = (
-            f"{self.model_name}_best.pt"
-            if is_best
-            else f"{self.model_name}_epoch_{epoch+1}.pt"
-        )
-        checkpoint_path = os.path.join(self.save_dir, checkpoint_name)
-
-        # Save checkpoint locally
-        torch.save(
-            {
-                "epoch": epoch + 1,
-                "model_state_dict": model.state_dict(),
-                # 'optimizer_state_dict': optimizer.state_dict(),
-                "loss": loss,
-            },
-            checkpoint_path,
-        )
-
-        # Upload to wandb if available
-        # if isinstance(self.logger, type(wandb.run)):
-        #     artifact = wandb.Artifact(
-        #         name=f'{self.model_name}_{"best" if is_best else "checkpoint"}',
-        #         type='model',
-        #         description=f'{"Best model" if is_best else "Model"} checkpoint from epoch {epoch+1}'
-        #     )
-        # artifact.add_file(checkpoint_path)
-        # self.logger.log_artifact(artifact)
-        # Clean up local checkpoint
-        # os.remove(checkpoint_name)
-
-    def handle_epoch_end(self, epoch, model, optimizer, avg_loss):
-        """Handle end of epoch operations (logging and saving)."""
-        # Save based on frequency
-        # if (epoch + 1) % self.save_freq == 0:
-        #     self.save_checkpoint(epoch, model, optimizer, avg_loss)
-
-        # Save best model if enabled
-        if self.save_best and avg_loss < self.best_loss:
-            self.best_loss = avg_loss
-            self.save_checkpoint(epoch, model, optimizer, avg_loss, is_best=True)
-
-    def finish(self):
-        """Cleanup logging resources."""
-        if self.logger is not None and hasattr(self.logger, "finish"):
-            self.logger.finish()
+    # Basic MSE loss for positions
+    pos_mse_loss = torch.nn.functional.mse_loss(outputs[1], targets[1])
+    
+    # Add norm constraint to ensure predictions have appropriate scale
+    # Calculate average norm of predicted and target noise
+    pred_norm = torch.norm(outputs[1], dim=1).mean()
+    target_norm = torch.norm(targets[1], dim=1).mean()
+    
+    # Norm constraint: penalize deviation from expected norm
+    norm_constraint_weight = 1.0  # Adjust this weight as needed
+    norm_constraint_loss = torch.abs(pred_norm - target_norm)
+    
+    # Combined position loss
+    pos_loss = pos_mse_loss + norm_constraint_weight * norm_constraint_loss
+    
+    # Update the global norm_losses dictionary for monitoring
+    global norm_losses
+    norm_losses = {
+        'pos_mse_loss': pos_mse_loss.item(),
+        'norm_constraint_loss': norm_constraint_loss.item(),
+        'pred_norm': pred_norm.item(),
+        'target_norm': target_norm.item()
+    }
+    
+    # Cross entropy loss for atom types
+    atom_loss = torch.nn.functional.cross_entropy(outputs[0], targets[0])
+    
+    return pos_loss, atom_loss
 
 
 def get_device():
@@ -227,14 +137,9 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
             actual_noise_norm = torch.norm(batch.y[:, 5:], dim=1).mean().item()
             noise_scale_ratio = pred_noise_norm / (actual_noise_norm + 1e-6)  # avoid division by zero
             
-            # Try to get norm loss components from the global norm_losses dict in train.py
-            try:
-                import train
-                pos_mse_loss = train.norm_losses.get('pos_mse_loss', loss_pos.item())
-                norm_constraint_loss = train.norm_losses.get('norm_constraint_loss', 0.0)
-            except (ImportError, AttributeError):
-                pos_mse_loss = loss_pos.item()
-                norm_constraint_loss = 0.0
+            # Get norm loss components from our global norm_losses dict
+            pos_mse_loss = norm_losses.get('pos_mse_loss', loss_pos.item())
+            norm_constraint_loss = norm_losses.get('norm_constraint_loss', 0.0)
         
         # Log batch metrics including separate loss components and noise norms
         loss_components = {
@@ -303,14 +208,9 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
             actual_noise_norm = torch.norm(batch.y[:, 5:], dim=1).mean().item()
             noise_scale_ratio = pred_noise_norm / (actual_noise_norm + 1e-6)  # avoid division by zero
             
-            # Try to get norm loss components from the global norm_losses dict in train.py
-            try:
-                import train
-                pos_mse_loss = train.norm_losses.get('pos_mse_loss', loss_pos.item())
-                norm_constraint_loss = train.norm_losses.get('norm_constraint_loss', 0.0)
-            except (ImportError, AttributeError):
-                pos_mse_loss = loss_pos.item()
-                norm_constraint_loss = 0.0
+            # Get norm loss components from our global norm_losses dict
+            pos_mse_loss = norm_losses.get('pos_mse_loss', loss_pos.item())
+            norm_constraint_loss = norm_losses.get('norm_constraint_loss', 0.0)
             
             # Log batch metrics including loss components and noise norms
             val_loss_components = {

@@ -1,4 +1,4 @@
-import os, json, sys, argparse, random, datetime, wandb
+import os, json, sys, argparse, random, datetime
 import torch, torch_geometric
 
 # from torchmdnet.models import EquivariantModel
@@ -13,12 +13,12 @@ from hydragnn.utils.input_config_parsing import config_utils
 from hydragnn.utils.distributed import setup_ddp, get_distributed_model
 from hydragnn.preprocess.graph_samples_checks_and_updates import update_predicted_values
 
-
 from src.utils import diffusion_utils as du
 from src.processes.diffusion import DiffusionProcess
 from src.processes.equivariant_diffusion import EquivariantDiffusionProcess
 from src.processes.marginal_diffusion import MarginalDiffusionProcess
-from src.utils.train_utils import train_model, get_train_transform, get_hydra_transform, insert_t
+from src.utils.train_utils import train_model, get_train_transform, get_hydra_transform, insert_t, diffusion_loss
+from src.utils.logging_utils import ModelLoggerHandler, configure_wandb
 from src.utils.data_utils import get_marg_dist, FullyConnectGraph
 
 
@@ -99,8 +99,8 @@ def train(args):
     # Update the config with the dataloaders.
     config = config_utils.update_config(config, train_loader, val_loader, test_loader)
 
-    # Save the config with all the updated stuff
-    wandb.init(project="graph diffusion model", config=config)
+    # Save the config with all the updated stuff and initialize wandb
+    wandb_run = configure_wandb(project_name="graph diffusion model", config=config)
 
     # Create the model from the config specifications
     model = hydragnn.models.create_model_config(
@@ -115,47 +115,17 @@ def train(args):
         optimizer, mode="min", factor=0.5, patience=5, min_lr=0.00001
     )
 
-    # Store norm loss components for monitoring
-    norm_losses = {}
-    
-    # TODO move this to train_utils.py, name specific
-    def loss(outputs, targets):
-        # Basic MSE loss for positions
-        pos_mse_loss = torch.nn.functional.mse_loss(outputs[1], targets[1])
-        
-        # Add norm constraint to ensure predictions have appropriate scale
-        # Calculate average norm of predicted and target noise
-        pred_norm = torch.norm(outputs[1], dim=1).mean()
-        target_norm = torch.norm(targets[1], dim=1).mean()
-        
-        # Norm constraint: penalize deviation from expected norm
-        norm_constraint_weight = 1.0  # Adjust this weight as needed
-        norm_constraint_loss = torch.abs(pred_norm - target_norm)
-        
-        # Combined position loss
-        pos_loss = pos_mse_loss + norm_constraint_weight * norm_constraint_loss
-        
-        # Update the global norm_losses dictionary for monitoring
-        global norm_losses
-        norm_losses = {
-            'pos_mse_loss': pos_mse_loss.item(),
-            'norm_constraint_loss': norm_constraint_loss.item(),
-            'pred_norm': pred_norm.item(),
-            'target_norm': target_norm.item()
-        }
-        
-        atom_loss = torch.nn.functional.cross_entropy(outputs[0], targets[0])
-        return pos_loss, atom_loss
+    # We'll use the diffusion_loss function imported from train_utils
 
     # Run training with the given model and dataset.
     model = train_model(
         model,
-        loss,
+        diffusion_loss,
         optimizer,
         train_loader,
         val_loader,
         config["NeuralNetwork"]["Training"]["num_epoch"],
-        logger=wandb.run,
+        logger=wandb_run,
         scheduler=scheduler,
         train_transform=train_tform
     )
