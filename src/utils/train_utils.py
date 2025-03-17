@@ -9,7 +9,7 @@ from src.processes.diffusion import DiffusionProcess
 from src.utils.logging_utils import ModelLoggerHandler
 
 
-def diffusion_loss(outputs, targets, pos_weight=10.0, atom_weight=0.1):
+def diffusion_loss(outputs, targets, pos_weight=25.0, atom_weight=0.05):
     """
     Loss function for graph diffusion models with norm constraint.
     Computes positional loss with norm constraint and atom type loss.
@@ -23,28 +23,46 @@ def diffusion_loss(outputs, targets, pos_weight=10.0, atom_weight=0.1):
     Returns:
         Tuple of (position_loss, atom_type_loss, metrics_dict)
     """
+    # Verify center of gravity constraint on both predictions and targets
+    pos_preds = outputs[1]
+    pos_targets = targets[1]
+    
+    # Double-check center of gravity (should be close to zero for both)
+    # Calculate center of mass for the predictions and targets
+    pred_center = torch.mean(pos_preds, dim=0)
+    target_center = torch.mean(pos_targets, dim=0)
+    
+    # Add center of gravity penalty to enforce zero mean
+    # This shouldn't be necessary since we're already centering in postprocess,
+    # but it helps ensure the constraint is enforced during training
+    cog_penalty = 10.0 * (torch.norm(pred_center)**2)
+    
     # Basic MSE loss for positions
-    pos_mse_loss = torch.nn.functional.mse_loss(outputs[1], targets[1])
+    pos_mse_loss = torch.nn.functional.mse_loss(pos_preds, pos_targets)
     
     # Add norm constraint to ensure predictions have appropriate scale
     # Calculate average norm of predicted and target noise
-    pred_norm = torch.norm(outputs[1], dim=1).mean()
-    target_norm = torch.norm(targets[1], dim=1).mean()
+    pred_norm = torch.norm(pos_preds, dim=1).mean()
+    target_norm = torch.norm(pos_targets, dim=1).mean()
     
     # Norm constraint: penalize deviation from expected norm
-    norm_constraint_weight = 0.1  # Adjust this weight as needed
+    # Increased weight to better enforce scale matching
+    norm_constraint_weight = 1.0
     norm_constraint_loss = torch.abs(pred_norm - target_norm)
     
     # Combined position loss with increased weight
-    pos_loss = pos_weight * (pos_mse_loss + norm_constraint_weight * norm_constraint_loss)
+    pos_loss = pos_weight * (pos_mse_loss + norm_constraint_weight * norm_constraint_loss + cog_penalty)
     
-    # Cross entropy loss for atom types (with reduced weight)
+    # Cross entropy loss for atom types (with reduced weight further)
     atom_loss = atom_weight * torch.nn.functional.cross_entropy(outputs[0], targets[0])
     
     # Create a dictionary of metrics to track
     metrics = {
         'pos_mse_loss': pos_mse_loss.item(),
         'norm_constraint_loss': norm_constraint_loss.item(),
+        'cog_penalty': cog_penalty.item(),
+        'pred_center_norm': torch.norm(pred_center).item(),
+        'target_center_norm': torch.norm(target_center).item(),
         'pred_norm': pred_norm.item(),
         'target_norm': target_norm.item(),
         'weighted_pos_loss': pos_loss.item(),
@@ -72,9 +90,14 @@ def get_device():
 
 def postprocess_model_outputs(outputs, data):   
     # The model should directly predict the noise (epsilon) that was added
-    # No need to subtract positions as that would create a mismatch with our training targets
-    # We only need to ensure the center of mass is zero by centering the predictions
-    outputs[1] = outputs[1] - torch.mean(outputs[1], dim=0)
+    # For positional outputs, we need to ensure the center of mass is zero by centering
+    # This matches how the target noise is generated in the diffusion process
+    # (see marginal_diffusion.py line 213-214 where center_gravity is applied)
+    
+    # Apply center_gravity to position predictions to match target generation process
+    from src.processes.equivariant_diffusion import center_gravity
+    outputs[1] = center_gravity(outputs[1])
+    
     return outputs
 
 def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, epoch, transform_fn=None):
