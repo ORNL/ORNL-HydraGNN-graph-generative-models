@@ -15,7 +15,7 @@ def pred_fn(model, data, dp):
     model.eval()
     out = postprocess_model_outputs(model(data_tx), data)
     atom_ident_noise, atom_pos_noise = out[0], out[1]
-    atom_pos_noise = atom_pos_noise - data.pos
+    # atom_pos_noise = atom_pos_noise - data.pos # take a look, may be doing twice.
     atom_pos_noise = atom_pos_noise - torch.mean(atom_pos_noise, dim=0)
     noise_data = data.clone().detach_()
     noise_data.x = atom_ident_noise
