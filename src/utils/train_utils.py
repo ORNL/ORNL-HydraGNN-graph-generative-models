@@ -6,10 +6,11 @@ from torch_geometric.data import Data, Batch
 from typing import Dict, Tuple, Any, List, Optional
 
 from src.processes.diffusion import DiffusionProcess
+from src.processes.equivariant_diffusion import center_gravity
 from src.utils.logging_utils import ModelLoggerHandler
 
 
-def diffusion_loss(outputs, targets, pos_weight=25.0, atom_weight=0.05):
+def diffusion_loss(outputs, targets, pos_weight=25.0, atom_weight=0.05, predict_x0=False):
     """
     Loss function for graph diffusion models with norm constraint.
     Computes positional loss with norm constraint and atom type loss.
@@ -19,6 +20,8 @@ def diffusion_loss(outputs, targets, pos_weight=25.0, atom_weight=0.05):
         targets: Target values [atom_targets, position_targets]
         pos_weight: Weight multiplier for the position loss
         atom_weight: Weight multiplier for the atom type loss
+        predict_x0: If True, model is predicting original positions (x0)
+                    If False, model is predicting noise (epsilon)
         
     Returns:
         Tuple of (position_loss, atom_type_loss, metrics_dict)
@@ -32,22 +35,22 @@ def diffusion_loss(outputs, targets, pos_weight=25.0, atom_weight=0.05):
     pred_center = torch.mean(pos_preds, dim=0)
     target_center = torch.mean(pos_targets, dim=0)
     
-    # Add center of gravity penalty to enforce zero mean
-    # This shouldn't be necessary since we're already centering in postprocess,
-    # but it helps ensure the constraint is enforced during training
-    cog_penalty = 10.0 * (torch.norm(pred_center)**2)
+    # Center of gravity penalty - stronger in x0-prediction mode
+    cog_penalty_weight = 15.0 if predict_x0 else 10.0
+    cog_penalty = cog_penalty_weight * (torch.norm(pred_center)**2)
     
     # Basic MSE loss for positions
     pos_mse_loss = torch.nn.functional.mse_loss(pos_preds, pos_targets)
     
     # Add norm constraint to ensure predictions have appropriate scale
-    # Calculate average norm of predicted and target noise
+    # Calculate average norm of predicted and target 
     pred_norm = torch.norm(pos_preds, dim=1).mean()
     target_norm = torch.norm(pos_targets, dim=1).mean()
     
     # Norm constraint: penalize deviation from expected norm
     # Increased weight to better enforce scale matching
-    norm_constraint_weight = 1.0
+    # For x0 prediction, this is more important
+    norm_constraint_weight = 0.0 if predict_x0 else 1.0
     norm_constraint_loss = torch.abs(pred_norm - target_norm)
     
     # Combined position loss with increased weight
@@ -66,7 +69,8 @@ def diffusion_loss(outputs, targets, pos_weight=25.0, atom_weight=0.05):
         'pred_norm': pred_norm.item(),
         'target_norm': target_norm.item(),
         'weighted_pos_loss': pos_loss.item(),
-        'weighted_atom_loss': atom_loss.item()
+        'weighted_atom_loss': atom_loss.item(),
+        'prediction_mode': 'x0' if predict_x0 else 'epsilon'
     }
     
     return pos_loss, atom_loss, metrics
@@ -88,15 +92,29 @@ def get_device():
         else "cpu"
     )
 
-def postprocess_model_outputs(outputs, data):   
-    # The model should directly predict the noise (epsilon) that was added
-    # For positional outputs, we need to ensure the center of mass is zero by centering
-    # This matches how the target noise is generated in the diffusion process
-    # (see marginal_diffusion.py line 213-214 where center_gravity is applied)
+def postprocess_model_outputs(outputs, data, predict_x0=False):   
+    """
+    Process the model outputs - either predict noise (epsilon) or original positions (x0)
     
-    # Apply center_gravity to position predictions to match target generation process
+    Args:
+        outputs: Raw model outputs [atom_predictions, position_predictions]
+        data: The input data batch
+        predict_x0: If True, the model is predicting x0 (original positions)
+                    If False, the model is predicting noise (epsilon)
+    
+    Returns:
+        Processed outputs
+    """
     from src.processes.equivariant_diffusion import center_gravity
-    outputs[1] = center_gravity(outputs[1])
+    
+    if predict_x0:
+        # For x0 prediction, the model is directly predicting original positions
+        # Just ensure center of gravity is removed (model may not perfectly maintain this)
+        outputs[1] = center_gravity(outputs[1])
+    else:
+        # For epsilon prediction, ensure noise predictions have zero center of gravity
+        # This matches how the target noise is generated in the diffusion process
+        outputs[1] = center_gravity(outputs[1])
     
     return outputs
 
@@ -138,11 +156,18 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
             transformed_samples = [transform_fn(data.clone()) for data in batch.to_data_list()]
             batch = Batch.from_data_list(transformed_samples)
 
+        # Use global prediction mode from transform function
+        predict_x0 = getattr(transform_fn, 'predict_x0', False) if transform_fn else False
+        
         # Forward pass
         batch = batch.to(device)
-        outputs = postprocess_model_outputs(model(batch), batch)
+        outputs = postprocess_model_outputs(model(batch), batch, predict_x0=predict_x0)
         # then, compute the loss
-        loss_pos, loss_atom, loss_metrics = loss_fun(outputs, [batch.y[:, :5], batch.y[:, 5:]])
+        loss_pos, loss_atom, loss_metrics = loss_fun(
+            outputs, 
+            [batch.y[:, :5], batch.y[:, 5:]], 
+            predict_x0=predict_x0
+        )
         # Combine the losses - both are already weighted in the loss function
         loss = loss_pos + loss_atom  # The weights are applied inside the loss function
 
@@ -264,11 +289,18 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
                 transformed_samples = [transform_fn(data.clone()) for data in batch.to_data_list()]
                 batch = Batch.from_data_list(transformed_samples)
             
+            # Use global prediction mode from transform function
+            predict_x0 = getattr(transform_fn, 'predict_x0', False) if transform_fn else False
+            
             # Forward pass
             batch = batch.to(device)
-            outputs = postprocess_model_outputs(model(batch), batch)
+            outputs = postprocess_model_outputs(model(batch), batch, predict_x0=predict_x0)
 
-            loss_pos, loss_atom, loss_metrics = loss_fun(outputs, [batch.y[:, :5], batch.y[:, 5:]])
+            loss_pos, loss_atom, loss_metrics = loss_fun(
+                outputs, 
+                [batch.y[:, :5], batch.y[:, 5:]], 
+                predict_x0=predict_x0
+            )
             loss = loss_pos + loss_atom  # Combine the weighted losses
 
             # Accumulate losses
@@ -483,7 +515,7 @@ def train_model(
     return model
 
 
-def get_train_transform(dp: DiffusionProcess):
+def get_train_transform(dp: DiffusionProcess, predict_x0=False):
     """
     Returns a training transform function for the QM9 dataset. Encompasses
     the forward noising process, time insertion, and formatting for the
@@ -493,6 +525,8 @@ def get_train_transform(dp: DiffusionProcess):
     -----
     dp (DiffusionProcess):
         The diffusion process object.
+    predict_x0 (bool):
+        If True, the model predicts the original positions (x0) instead of noise.
     head_types (list):
         The types of heads in the denoising model.
     out_indices (list):
@@ -508,6 +542,9 @@ def get_train_transform(dp: DiffusionProcess):
 
         # Only use atom type features
         data.x = data.x[:, :5].float()
+        
+        # Save the original positions for x0 prediction case
+        original_pos = data.pos.clone()
 
         # randomly sample a t
         t = random.randint(0, dp.timesteps - 1)
@@ -539,10 +576,22 @@ def get_train_transform(dp: DiffusionProcess):
             [0, 5, 8], dtype=torch.int64, device=data.x.device
         ).unsqueeze(0)
 
-        # assign y values for "epsilon" parameterization
-        noised_data.y = torch.hstack([data.x, noised_data.ypos])
+        # Store the diffusion alpha for the current timestep (needed for x0 prediction)
+        noised_data.alpha_t = dp.alphas[t]
+        
+        if predict_x0:
+            # For x0 prediction, the target is the original position
+            noised_data.ypos_original = noised_data.ypos.clone()  # Save the original noise for debugging
+            noised_data.y = torch.hstack([data.x, center_gravity(original_pos)])
+        else:
+            # For epsilon prediction, the target is the noise (traditional approach)
+            noised_data.y = torch.hstack([data.x, noised_data.ypos])
+            
         return noised_data
 
+    # Store predict_x0 as an attribute on the function for access in train_epoch
+    train_transform.predict_x0 = predict_x0
+    
     return train_transform
 
 def get_hydra_transform():

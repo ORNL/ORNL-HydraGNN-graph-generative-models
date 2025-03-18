@@ -47,8 +47,15 @@ def train(args):
     # dp = EquivariantDiffusionProcess(args.diffusion_steps)
 
     # Create a training transform function for the QM9 dataset.
-    train_tform = get_train_transform(dp)
+    # If predict_x0 is True, the model will predict original positions instead of noise
+    train_tform = get_train_transform(dp, predict_x0=args.predict_x0)
     hydra_transform = get_hydra_transform()
+    
+    # Print prediction mode
+    if args.predict_x0:
+        print("Training in x0-prediction mode: model will predict original positions")
+    else:
+        print("Training in epsilon-prediction mode: model will predict noise")
 
     # Load the QM9 dataset from torch WITHOUT transform (we'll apply it during training)
     # This prevents caching of transformed data with fixed noise
@@ -142,6 +149,7 @@ if __name__ == "__main__":
         "-c", "--config_path", type=str, default="examples/qm9/qm9_marginal.json"
     )
     parser.add_argument("-d", "--data_path", type=str, default="examples/qm9/dataset")
+    parser.add_argument("--predict_x0", action="store_true", help="Train model to predict original positions (x0) instead of noise")
 
     # Store the arguments in args.
     args = parser.parse_args()
