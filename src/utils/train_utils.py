@@ -36,7 +36,7 @@ def diffusion_loss(outputs, targets, pos_weight=25.0, atom_weight=0.05, predict_
     target_center = torch.mean(pos_targets, dim=0)
     
     # Center of gravity penalty - stronger in x0-prediction mode
-    cog_penalty_weight = 15.0 if predict_x0 else 10.0
+    cog_penalty_weight = 1.0 if predict_x0 else 10.0
     cog_penalty = cog_penalty_weight * (torch.norm(pred_center)**2)
     
     # Basic MSE loss for positions
