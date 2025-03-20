@@ -117,9 +117,9 @@ def train(args):
 
     # Define training optimizer and scheduler
     learning_rate = config["NeuralNetwork"]["Training"]["Optimizer"]["learning_rate"]
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0001)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.00001)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=5, min_lr=0.00001
+        optimizer, mode="min", factor=0.5, patience=5, min_lr=0.000001
     )
 
     # We'll use the diffusion_loss function imported from train_utils

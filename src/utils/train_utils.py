@@ -1,6 +1,7 @@
-import os, random
+import os, random, csv
 import tqdm
 import torch
+from datetime import datetime   
 
 from torch_geometric.data import Data, Batch
 from typing import Dict, Tuple, Any, List, Optional
@@ -10,7 +11,7 @@ from src.processes.equivariant_diffusion import center_gravity
 from src.utils.logging_utils import ModelLoggerHandler
 
 
-def diffusion_loss(outputs, targets, pos_weight=25.0, atom_weight=0.05, predict_x0=False):
+def diffusion_loss(outputs, targets, pos_weight=1.0, atom_weight=0.5, predict_x0=False):
     """
     Loss function for graph diffusion models with norm constraint.
     Computes positional loss with norm constraint and atom type loss.
@@ -35,34 +36,72 @@ def diffusion_loss(outputs, targets, pos_weight=25.0, atom_weight=0.05, predict_
     pred_center = torch.mean(pos_preds, dim=0)
     target_center = torch.mean(pos_targets, dim=0)
     
-    # Center of gravity penalty - stronger in x0-prediction mode
-    cog_penalty_weight = 1.0 if predict_x0 else 10.0
-    cog_penalty = cog_penalty_weight * (torch.norm(pred_center)**2)
+    # For x0 prediction, we need additional components to prevent collapse to zero
+    if predict_x0:
+        # Center of gravity penalty - weaker in x0-prediction mode as it's less critical
+        cog_penalty_weight = 0.0  
+        cog_penalty = cog_penalty_weight * (torch.norm(pred_center)**2)
+        
+        # Basic MSE loss for positions
+        pos_mse_loss = torch.nn.functional.mse_loss(pos_preds, pos_targets)
+        
+        # Add norm constraint to ensure predictions have appropriate scale
+        # Calculate norms for each sample and across the batch
+        pred_norm = torch.norm(pos_preds, dim=1).mean()
+        target_norm = torch.norm(pos_targets, dim=1).mean()
+        
+        # Anti-collapse term: strongly penalize when predictions are too small
+        # This specifically addresses the zero-collapse problem
+        # Uses a one-sided penalty that only activates when predictions are smaller than targets
+        anti_collapse_weight = 1.0
+        anti_collapse_loss = torch.relu(target_norm - pred_norm)  # Only penalize if pred_norm < target_norm
+        
+        # Encourage prediction variance to match target variance
+        # This helps prevent mode collapse to a single point
+        pred_var = torch.var(pos_preds, dim=0).mean()
+        target_var = torch.var(pos_targets, dim=0).mean()
+        variance_match_weight = 0.0
+        variance_match_loss = torch.abs(pred_var - target_var)
+        
+        # Combined position loss with increased weight
+        pos_loss = pos_weight * (
+            pos_mse_loss + 
+            anti_collapse_weight * anti_collapse_loss + 
+            variance_match_weight * variance_match_loss +
+            cog_penalty
+        )
+        
+        # Track these additional metrics
+        metrics_extra = {
+            'anti_collapse_loss': anti_collapse_loss.item(),
+            'variance_match_loss': variance_match_loss.item(),
+            'pred_var': pred_var.item(),
+            'target_var': target_var.item(),
+        }
+    else:
+        # For epsilon prediction, use the original approach
+        cog_penalty_weight = 10.0
+        cog_penalty = cog_penalty_weight * (torch.norm(pred_center)**2)
+        
+        pos_mse_loss = torch.nn.functional.mse_loss(pos_preds, pos_targets)
+        
+        pred_norm = torch.norm(pos_preds, dim=1).mean()
+        target_norm = torch.norm(pos_targets, dim=1).mean()
+        
+        norm_constraint_weight = 1.0
+        norm_constraint_loss = torch.abs(pred_norm - target_norm)
+        
+        pos_loss = pos_weight * (pos_mse_loss + norm_constraint_weight * norm_constraint_loss + cog_penalty)
+        
+        # Empty extra metrics for this mode
+        metrics_extra = {}
     
-    # Basic MSE loss for positions
-    pos_mse_loss = torch.nn.functional.mse_loss(pos_preds, pos_targets)
-    
-    # Add norm constraint to ensure predictions have appropriate scale
-    # Calculate average norm of predicted and target 
-    pred_norm = torch.norm(pos_preds, dim=1).mean()
-    target_norm = torch.norm(pos_targets, dim=1).mean()
-    
-    # Norm constraint: penalize deviation from expected norm
-    # Increased weight to better enforce scale matching
-    # For x0 prediction, this is more important
-    norm_constraint_weight = 0.0 if predict_x0 else 1.0
-    norm_constraint_loss = torch.abs(pred_norm - target_norm)
-    
-    # Combined position loss with increased weight
-    pos_loss = pos_weight * (pos_mse_loss + norm_constraint_weight * norm_constraint_loss + cog_penalty)
-    
-    # Cross entropy loss for atom types (with reduced weight further)
+    # Cross entropy loss for atom types (with reduced weight)
     atom_loss = atom_weight * torch.nn.functional.cross_entropy(outputs[0], targets[0])
     
     # Create a dictionary of metrics to track
     metrics = {
         'pos_mse_loss': pos_mse_loss.item(),
-        'norm_constraint_loss': norm_constraint_loss.item(),
         'cog_penalty': cog_penalty.item(),
         'pred_center_norm': torch.norm(pred_center).item(),
         'target_center_norm': torch.norm(target_center).item(),
@@ -72,6 +111,9 @@ def diffusion_loss(outputs, targets, pos_weight=25.0, atom_weight=0.05, predict_
         'weighted_atom_loss': atom_loss.item(),
         'prediction_mode': 'x0' if predict_x0 else 'epsilon'
     }
+    
+    # Add any mode-specific metrics
+    metrics.update(metrics_extra)
     
     return pos_loss, atom_loss, metrics
 
@@ -105,7 +147,6 @@ def postprocess_model_outputs(outputs, data, predict_x0=False):
     Returns:
         Processed outputs
     """
-    from src.processes.equivariant_diffusion import center_gravity
     
     if predict_x0:
         # For x0 prediction, the model is directly predicting original positions
@@ -142,11 +183,6 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
     epoch_pos_loss = 0  # Positional loss (MSE)
     epoch_atom_loss = 0  # Atom type loss (Cross-entropy)
     batch_count = 0
-    
-    # Setup time bins for tracking loss at different timesteps (10 bins)
-    NUM_TIME_BINS = 10
-    time_bin_losses = {i: {"loss": [], "pos_loss": [], "atom_loss": [], "pos_mse_loss": [], 
-                          "norm_constraint_loss": [], "count": 0} for i in range(NUM_TIME_BINS)}
 
     for batch_idx, batch in enumerate(dataloader):
         optimizer.zero_grad()
@@ -189,24 +225,6 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
             actual_noise_norm = torch.norm(batch.y[:, 5:], dim=1).mean().item()
             noise_scale_ratio = pred_noise_norm / (actual_noise_norm + 1e-6)  # avoid division by zero
         
-        # Track losses by time bin
-        if hasattr(batch, 'time_norm'):
-            # If time_norm is a tensor, convert to a list
-            time_norms = batch.time_norm.cpu().numpy() if torch.is_tensor(batch.time_norm) else [batch.time_norm]
-            
-            # For each data point, determine its time bin and record the loss
-            for t_norm in time_norms:
-                # Calculate which bin this time belongs to (0-9)
-                bin_idx = min(int(t_norm * NUM_TIME_BINS), NUM_TIME_BINS - 1)
-                
-                # Add loss values to the appropriate bin
-                time_bin_losses[bin_idx]["loss"].append(loss.item())
-                time_bin_losses[bin_idx]["pos_loss"].append(loss_pos.item())
-                time_bin_losses[bin_idx]["atom_loss"].append(loss_atom.item())
-                time_bin_losses[bin_idx]["pos_mse_loss"].append(loss_metrics['pos_mse_loss'])
-                time_bin_losses[bin_idx]["norm_constraint_loss"].append(loss_metrics['norm_constraint_loss'])
-                time_bin_losses[bin_idx]["count"] += 1
-        
         # Log batch metrics including separate loss components and noise norms
         loss_components = {
             "position_loss": loss_pos, 
@@ -215,7 +233,7 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
             "actual_noise_norm": actual_noise_norm,
             "noise_scale_ratio": noise_scale_ratio,
             "pos_mse_loss": loss_metrics['pos_mse_loss'],
-            "norm_constraint_loss": loss_metrics['norm_constraint_loss']
+            # "norm_constraint_loss": loss_metrics['norm_constraint_loss']
         }
         
         # Add current time information to batch logging if available
@@ -227,28 +245,7 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
         logger_handler.log_batch(
             loss, batch_idx, epoch, len(dataloader), "train", loss_components
         )
-
-    # Collect all time bin metrics to log together in a single call
-    time_bin_metrics = {}
-    for bin_idx, bin_data in time_bin_losses.items():
-        if bin_data["count"] > 0:  # Only include bins with data
-            # Calculate bin's time range (e.g., 0.0-0.1, 0.1-0.2, etc.)
-            bin_start = bin_idx / NUM_TIME_BINS
-            bin_end = (bin_idx + 1) / NUM_TIME_BINS
-            
-            # Add metrics for this time bin to the combined metrics dictionary
-            time_bin_metrics[f"time_bin_{bin_start:.1f}_{bin_end:.1f}_loss"] = sum(bin_data["loss"]) / len(bin_data["loss"])
-            time_bin_metrics[f"time_bin_{bin_start:.1f}_{bin_end:.1f}_pos_loss"] = sum(bin_data["pos_loss"]) / len(bin_data["pos_loss"])
-            time_bin_metrics[f"time_bin_{bin_start:.1f}_{bin_end:.1f}_atom_loss"] = sum(bin_data["atom_loss"]) / len(bin_data["atom_loss"])
-            time_bin_metrics[f"time_bin_{bin_start:.1f}_{bin_end:.1f}_pos_mse"] = sum(bin_data["pos_mse_loss"]) / len(bin_data["pos_mse_loss"])
-            time_bin_metrics[f"time_bin_{bin_start:.1f}_{bin_end:.1f}_norm_constraint"] = sum(bin_data["norm_constraint_loss"]) / len(bin_data["norm_constraint_loss"])
-            time_bin_metrics[f"time_bin_{bin_start:.1f}_{bin_end:.1f}_samples"] = bin_data["count"]
     
-    # Log all time bin metrics together
-    if time_bin_metrics and logger_handler.logger is not None and hasattr(logger_handler.logger, "log"):
-        # We'll use commit=True to ensure this is logged properly
-        logger_handler.logger.log(time_bin_metrics)
-
     return epoch_loss, epoch_pos_loss, epoch_atom_loss, batch_count
 
 
@@ -276,11 +273,6 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
     epoch_val_atom_loss = 0
     batch_count_val = 0
     
-    # Setup time bins for tracking loss at different timesteps (10 bins)
-    NUM_TIME_BINS = 10
-    val_time_bin_losses = {i: {"loss": [], "pos_loss": [], "atom_loss": [], "pos_mse_loss": [], 
-                              "norm_constraint_loss": [], "count": 0} for i in range(NUM_TIME_BINS)}
-
     for val_batch_idx, batch in enumerate(dataloader):
         with torch.no_grad():
             # Apply transform to add fresh noise if transform function is provided
@@ -314,24 +306,6 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
             actual_noise_norm = torch.norm(batch.y[:, 5:], dim=1).mean().item()
             noise_scale_ratio = pred_noise_norm / (actual_noise_norm + 1e-6)  # avoid division by zero
             
-            # Track losses by time bin
-            if hasattr(batch, 'time_norm'):
-                # If time_norm is a tensor, convert to a list
-                time_norms = batch.time_norm.cpu().numpy() if torch.is_tensor(batch.time_norm) else [batch.time_norm]
-                
-                # For each data point, determine its time bin and record the loss
-                for t_norm in time_norms:
-                    # Calculate which bin this time belongs to (0-9)
-                    bin_idx = min(int(t_norm * NUM_TIME_BINS), NUM_TIME_BINS - 1)
-                    
-                    # Add loss values to the appropriate bin
-                    val_time_bin_losses[bin_idx]["loss"].append(loss.item())
-                    val_time_bin_losses[bin_idx]["pos_loss"].append(loss_pos.item())
-                    val_time_bin_losses[bin_idx]["atom_loss"].append(loss_atom.item())
-                    val_time_bin_losses[bin_idx]["pos_mse_loss"].append(loss_metrics['pos_mse_loss'])
-                    val_time_bin_losses[bin_idx]["norm_constraint_loss"].append(loss_metrics['norm_constraint_loss'])
-                    val_time_bin_losses[bin_idx]["count"] += 1
-            
             # Log batch metrics including loss components and noise norms
             val_loss_components = {
                 "position_loss": loss_pos,
@@ -340,7 +314,7 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
                 "actual_noise_norm": actual_noise_norm,
                 "noise_scale_ratio": noise_scale_ratio,
                 "pos_mse_loss": loss_metrics['pos_mse_loss'],
-                "norm_constraint_loss": loss_metrics['norm_constraint_loss']
+                # "norm_constraint_loss": loss_metrics['norm_constraint_loss']
             }
             
             # Add current time information to batch logging if available
@@ -357,27 +331,6 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
                 "val",
                 val_loss_components,
             )
-
-    # Collect all time bin metrics to log together in a single call
-    val_time_bin_metrics = {}
-    for bin_idx, bin_data in val_time_bin_losses.items():
-        if bin_data["count"] > 0:  # Only include bins with data
-            # Calculate bin's time range (e.g., 0.0-0.1, 0.1-0.2, etc.)
-            bin_start = bin_idx / NUM_TIME_BINS
-            bin_end = (bin_idx + 1) / NUM_TIME_BINS
-            
-            # Add metrics for this time bin to the combined metrics dictionary
-            val_time_bin_metrics[f"val_time_bin_{bin_start:.1f}_{bin_end:.1f}_loss"] = sum(bin_data["loss"]) / len(bin_data["loss"])
-            val_time_bin_metrics[f"val_time_bin_{bin_start:.1f}_{bin_end:.1f}_pos_loss"] = sum(bin_data["pos_loss"]) / len(bin_data["pos_loss"])
-            val_time_bin_metrics[f"val_time_bin_{bin_start:.1f}_{bin_end:.1f}_atom_loss"] = sum(bin_data["atom_loss"]) / len(bin_data["atom_loss"])
-            val_time_bin_metrics[f"val_time_bin_{bin_start:.1f}_{bin_end:.1f}_pos_mse"] = sum(bin_data["pos_mse_loss"]) / len(bin_data["pos_mse_loss"])
-            val_time_bin_metrics[f"val_time_bin_{bin_start:.1f}_{bin_end:.1f}_norm_constraint"] = sum(bin_data["norm_constraint_loss"]) / len(bin_data["norm_constraint_loss"])
-            val_time_bin_metrics[f"val_time_bin_{bin_start:.1f}_{bin_end:.1f}_samples"] = bin_data["count"]
-    
-    # Log all time bin metrics together
-    if val_time_bin_metrics and logger_handler.logger is not None and hasattr(logger_handler.logger, "log"):
-        # Log all time bin metrics at once without specifying a step
-        logger_handler.logger.log(val_time_bin_metrics)
 
     return epoch_val_loss, epoch_val_pos_loss, epoch_val_atom_loss, batch_count_val
 
