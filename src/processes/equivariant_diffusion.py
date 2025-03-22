@@ -78,7 +78,7 @@ class EquivariantDiffusionProcess(DiffusionProcess):
         super().__init__(timesteps)
         if alphas is None:
             alphas = polynomial_schedule(timesteps, power=1.) # default schedule
-        self.alphas = alphas
+        self.alphas = torch.tensor(alphas).float()
 
     def snr_t(self, t: int):
         alphat2 = self.alphas[t]**2
@@ -165,6 +165,7 @@ class EquivariantDiffusionProcess(DiffusionProcess):
         x, pos, s = state.x, state.pos, state.t
         # compute the SNR params from s to t
         alpha_ts = self.alphas[t] / self.alphas[s]
+        #print(alpha_ts)
         x_mu_t, pos_mu_t = alpha_ts*x, alpha_ts*pos
         sigma_t2 = (1. - self.alphas[t]**2)
         sigma_s2 = (1. - self.alphas[s]**2)

@@ -61,7 +61,7 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
             self, 
             timesteps: int,
             marg_dist: Tensor, 
-            noise_schedule: Optional[str] = 'cos'
+            noise_schedule: Optional[str] = 'polynomial'
         ):
         """
         Saves arguments as attributes and initializes the noise schedule
