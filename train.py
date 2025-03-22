@@ -41,10 +41,10 @@ def train(args):
     voi = config["NeuralNetwork"]["Variables_of_interest"]
 
     # Create a MarginalDiffusionProcess object.
-    dp = MarginalDiffusionProcess(
-        args.diffusion_steps, marg_dist=get_marg_dist(root_path=args.data_path)
-    )
-    # dp = EquivariantDiffusionProcess(args.diffusion_steps)
+    # dp = MarginalDiffusionProcess(
+    #     args.diffusion_steps, marg_dist=get_marg_dist(root_path=args.data_path)
+    # )
+    dp = EquivariantDiffusionProcess(args.diffusion_steps)
 
     # Create a training transform function for the QM9 dataset.
     # If predict_x0 is True, the model will predict original positions instead of noise
@@ -117,9 +117,9 @@ def train(args):
 
     # Define training optimizer and scheduler
     learning_rate = config["NeuralNetwork"]["Training"]["Optimizer"]["learning_rate"]
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.00001)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=5, min_lr=0.000001
+        optimizer, mode="min", factor=0.5, patience=5, min_lr=1e-6
     )
 
     # We'll use the diffusion_loss function imported from train_utils

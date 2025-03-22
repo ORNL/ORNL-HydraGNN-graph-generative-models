@@ -13,7 +13,7 @@
             "max_neighbours": 500,
             "periodic_boundary_conditions": false,
             "hidden_dim": 2048,
-            "activation_function": "relu",
+            "activation_function": "silu",
             "num_conv_layers": 4,
             "num_radial": 3,
             "equivariance": true,

@@ -11,7 +11,7 @@ from src.processes.equivariant_diffusion import center_gravity
 from src.utils.logging_utils import ModelLoggerHandler
 
 
-def diffusion_loss(outputs, targets, pos_weight=1.0, atom_weight=0.5, predict_x0=False):
+def diffusion_loss(outputs, targets, pos_weight=1.0, atom_weight=1.0, predict_x0=False):
     """
     Loss function for graph diffusion models with norm constraint.
     Computes positional loss with norm constraint and atom type loss.
@@ -53,7 +53,7 @@ def diffusion_loss(outputs, targets, pos_weight=1.0, atom_weight=0.5, predict_x0
         # Anti-collapse term: strongly penalize when predictions are too small
         # This specifically addresses the zero-collapse problem
         # Uses a one-sided penalty that only activates when predictions are smaller than targets
-        anti_collapse_weight = 1.0
+        anti_collapse_weight = 0.0
         anti_collapse_loss = torch.relu(target_norm - pred_norm)  # Only penalize if pred_norm < target_norm
         
         # Encourage prediction variance to match target variance
@@ -194,7 +194,12 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
 
         # Use global prediction mode from transform function
         predict_x0 = getattr(transform_fn, 'predict_x0', False) if transform_fn else False
-        
+        # batch.alpha_t = batch.alpha_t.float() 
+        # for key, value in batch:
+        #     if isinstance(value, torch.Tensor):
+        #         if value.dtype != torch.float32:
+        #             print(f"Warning: {key} has dtype {value.dtype}, converting to float32.")
+                    #setattr(batch, key, value.float())  # Convert to float32
         # Forward pass
         batch = batch.to(device)
         outputs = postprocess_model_outputs(model(batch), batch, predict_x0=predict_x0)
@@ -205,7 +210,7 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
             predict_x0=predict_x0
         )
         # Combine the losses - both are already weighted in the loss function
-        loss = loss_pos + loss_atom  # The weights are applied inside the loss function
+        loss = loss_pos + loss_atom  
 
         # Backward pass and optimization
         loss.backward()
