@@ -10,8 +10,30 @@ from src.processes.diffusion import DiffusionProcess
 from src.processes.equivariant_diffusion import center_gravity
 from src.utils.logging_utils import ModelLoggerHandler
 
+def per_graph_mse_loss(outputs, targets, data):
+    # Initialize the list to hold the per-graph losses
+    per_graph_losses = []
+    
+    # Get the batch vector that indicates which graph each node belongs to
+    batch = data.batch
+    # Loop through each unique graph in the batch
+    for graph_idx in torch.unique(batch):
+        # Select the nodes belonging to the current graph
+        mask = batch == graph_idx
+        
+        # Extract the outputs and targets for the current graph
+        graph_outputs = outputs[mask]
+        graph_targets = targets[mask]
+        
+        # Compute MSE loss for the current graph
+        mse_loss = torch.nn.functional.mse_loss(graph_outputs, graph_targets)
+        
+        # Append the loss to the list
+        per_graph_losses.append(mse_loss)
+    # Return the list of per-graph MSE losses
+    return torch.mean(torch.tensor(per_graph_losses, requires_grad=True))
 
-def diffusion_loss(outputs, targets, pos_weight=1.0, atom_weight=1.0, predict_x0=False):
+def diffusion_loss(outputs, targets, pos_weight=1.0, atom_weight=0.0, predict_x0=False):
     """
     Loss function for graph diffusion models with norm constraint.
     Computes positional loss with norm constraint and atom type loss.
@@ -30,7 +52,7 @@ def diffusion_loss(outputs, targets, pos_weight=1.0, atom_weight=1.0, predict_x0
     # Verify center of gravity constraint on both predictions and targets
     pos_preds = outputs[1]
     pos_targets = targets[1]
-    
+
     # Double-check center of gravity (should be close to zero for both)
     # Calculate center of mass for the predictions and targets
     pred_center = torch.mean(pos_preds, dim=0)
@@ -80,15 +102,17 @@ def diffusion_loss(outputs, targets, pos_weight=1.0, atom_weight=1.0, predict_x0
         }
     else:
         # For epsilon prediction, use the original approach
-        cog_penalty_weight = 10.0
+        cog_penalty_weight = 0.0
         cog_penalty = cog_penalty_weight * (torch.norm(pred_center)**2)
-        
         pos_mse_loss = torch.nn.functional.mse_loss(pos_preds, pos_targets)
+        #print(f'MSE loss: {pos_mse_loss}')
         
         pred_norm = torch.norm(pos_preds, dim=1).mean()
         target_norm = torch.norm(pos_targets, dim=1).mean()
+
+        #print(f'norms (pred, target): {pred_norm},{target_norm}')
         
-        norm_constraint_weight = 1.0
+        norm_constraint_weight = 0.0
         norm_constraint_loss = torch.abs(pred_norm - target_norm)
         
         pos_loss = pos_weight * (pos_mse_loss + norm_constraint_weight * norm_constraint_loss + cog_penalty)
@@ -137,6 +161,7 @@ def get_device():
 def postprocess_model_outputs(outputs, data, predict_x0=False):   
     """
     Process the model outputs - either predict noise (epsilon) or original positions (x0)
+    Properly handles batched data by applying operations per-molecule rather than across the batch.
     
     Args:
         outputs: Raw model outputs [atom_predictions, position_predictions]
@@ -147,15 +172,27 @@ def postprocess_model_outputs(outputs, data, predict_x0=False):
     Returns:
         Processed outputs
     """
+    # Apply center of gravity operation per molecule, not across the entire batch
+    pos_preds = outputs[1] - data.pos  # Shape [num_nodes_total, 3]
     
-    if predict_x0:
-        # For x0 prediction, the model is directly predicting original positions
-        # Just ensure center of gravity is removed (model may not perfectly maintain this)
-        outputs[1] = center_gravity(outputs[1])
+    # Check if we have batch information to separate molecules
+    if hasattr(data, 'batch') and data.batch is not None:
+        # Process each molecule separately and then recombine
+        batch_idx = data.batch
+        unique_batch_indices = torch.unique(batch_idx)
+        for mol_idx in unique_batch_indices:
+            # Get molecule mask
+            mol_mask = (batch_idx == mol_idx)
+            # Apply center_gravity to just this molecule's positions
+            mol_positions = pos_preds[mol_mask]
+            centered_positions = center_gravity(mol_positions)
+            # Update the original tensor
+            pos_preds[mol_mask] = centered_positions
+            
+        outputs[1] = pos_preds
     else:
-        # For epsilon prediction, ensure noise predictions have zero center of gravity
-        # This matches how the target noise is generated in the diffusion process
-        outputs[1] = center_gravity(outputs[1])
+        # No batch information, assume single molecule
+        outputs[1] = center_gravity(pos_preds)
     
     return outputs
 
@@ -194,36 +231,38 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
 
         # Use global prediction mode from transform function
         predict_x0 = getattr(transform_fn, 'predict_x0', False) if transform_fn else False
-        # batch.alpha_t = batch.alpha_t.float() 
-        # for key, value in batch:
-        #     if isinstance(value, torch.Tensor):
-        #         if value.dtype != torch.float32:
-        #             print(f"Warning: {key} has dtype {value.dtype}, converting to float32.")
-                    #setattr(batch, key, value.float())  # Convert to float32
         # Forward pass
         batch = batch.to(device)
-        outputs = postprocess_model_outputs(model(batch), batch, predict_x0=predict_x0)
+        outputs = model(batch)
+
+        # outputs = postprocess_model_outputs(model(batch), batch, predict_x0=predict_x0)
         # then, compute the loss
-        loss_pos, loss_atom, loss_metrics = loss_fun(
-            outputs, 
-            [batch.y[:, :5], batch.y[:, 5:]], 
-            predict_x0=predict_x0
-        )
-        # Combine the losses - both are already weighted in the loss function
-        loss = loss_pos + loss_atom  
+        # loss_pos, loss_atom, loss_metrics = loss_fun(
+        #     outputs, 
+        #     (batch.y[:, :5], batch.y[:, 5:]),
+        #     predict_x0=predict_x0
+        # )
+
+        # get them another way:
+        loss_pos = torch.nn.functional.mse_loss(outputs[1], batch.y[:,5:])
+        loss = loss_pos
+        loss_atom = torch.tensor(0)
+        optimizer.step()
 
         # Backward pass and optimization
         loss.backward()
         # Apply gradient clipping
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        optimizer.step()
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
+        optimizer.step()
+        loss_metrics = {}
+        loss_metrics['pos_mse_loss'] = loss_pos
         # Accumulate losses
         epoch_loss += loss.item()
         epoch_pos_loss += loss_pos.item()
         epoch_atom_loss += loss_atom.item()
         batch_count += 1
-
+        
         # Calculate norms to monitor predicted vs actual noise scale
         with torch.no_grad():
             pred_noise_norm = torch.norm(outputs[1], dim=1).mean().item()
@@ -252,7 +291,6 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
         )
     
     return epoch_loss, epoch_pos_loss, epoch_atom_loss, batch_count
-
 
 def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, transform_fn=None):
     """
@@ -291,15 +329,20 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
             
             # Forward pass
             batch = batch.to(device)
-            outputs = postprocess_model_outputs(model(batch), batch, predict_x0=predict_x0)
+            # outputs = postprocess_model_outputs(model(batch), batch, predict_x0=predict_x0)
+            outputs = model(batch)
+            # loss_pos, loss_atom, loss_metrics = loss_fun(
+            #     outputs, 
+            #     [batch.y[:, :5], batch.y[:, 5:]], 
+            #     predict_x0=predict_x0
+            # )
+            # loss = loss_pos + loss_atom  # Combine the weighted losses
 
-            loss_pos, loss_atom, loss_metrics = loss_fun(
-                outputs, 
-                [batch.y[:, :5], batch.y[:, 5:]], 
-                predict_x0=predict_x0
-            )
-            loss = loss_pos + loss_atom  # Combine the weighted losses
-
+            loss_pos = torch.nn.functional.mse_loss(outputs[1], batch.y[:,5:])
+            loss = loss_pos
+            loss_atom = torch.tensor(0)
+            loss_metrics = {}
+            loss_metrics['pos_mse_loss'] = loss_pos
             # Accumulate losses
             epoch_val_loss += loss.item()
             epoch_val_pos_loss += loss_pos.item()
@@ -338,7 +381,6 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
             )
 
     return epoch_val_loss, epoch_val_pos_loss, epoch_val_atom_loss, batch_count_val
-
 
 def log_epoch_metrics(logger_handler, epoch, train_losses, val_losses, optimizer):
     """
@@ -392,7 +434,6 @@ def log_epoch_metrics(logger_handler, epoch, train_losses, val_losses, optimizer
     )
 
     return avg_epoch_loss
-
 
 def train_model(
     model,
@@ -472,7 +513,6 @@ def train_model(
     logger_handler.finish()
     return model
 
-
 def get_train_transform(dp: DiffusionProcess, predict_x0=False):
     """
     Returns a training transform function for the QM9 dataset. Encompasses
@@ -506,7 +546,6 @@ def get_train_transform(dp: DiffusionProcess, predict_x0=False):
 
         # randomly sample a t
         t = random.randint(0, dp.timesteps - 1)
-
         # noise the data 
         noised_data = dp.forward_process_sample(
             data, t
@@ -527,7 +566,7 @@ def get_train_transform(dp: DiffusionProcess, predict_x0=False):
         noised_data.time_norm = torch.tensor([t / (dp.timesteps - 1.0)], device=data.x.device)
 
         # insert time t into the node features
-        noised_data, time_vec = insert_t(noised_data, data.t, dp.timesteps)
+        noised_data, time_vec = insert_t(noised_data, t, dp.timesteps)
 
         # set y_loc for hydragnn reasons
         noised_data.y_loc = torch.tensor(
@@ -536,7 +575,7 @@ def get_train_transform(dp: DiffusionProcess, predict_x0=False):
 
         # Store the diffusion alpha for the current timestep (needed for x0 prediction)
         noised_data.alpha_t = dp.alphas[t]
-        
+
         if predict_x0:
             # For x0 prediction, the target is the original position
             noised_data.ypos_original = noised_data.ypos.clone()  # Save the original noise for debugging
@@ -544,7 +583,6 @@ def get_train_transform(dp: DiffusionProcess, predict_x0=False):
         else:
             # For epsilon prediction, the target is the noise (traditional approach)
             noised_data.y = torch.hstack([data.x, noised_data.ypos])
-            
         return noised_data
 
     # Store predict_x0 as an attribute on the function for access in train_epoch
@@ -578,6 +616,117 @@ def get_hydra_transform():
         return data
 
     return hydra_transform
+
+
+def get_deterministic_transform(timesteps: int, predict_x0=False):
+    """
+    Returns a training transform function that applies a deterministic
+    deformation to atom positions instead of random noise.
+    This helps diagnose position learning issues by creating a simple,
+    deterministic target.
+
+    Args:
+    -----
+    timesteps (int):
+        Number of diffusion timesteps to simulate
+    predict_x0 (bool):
+        If True, the model predicts the original positions (x0) instead of noise.
+    """
+
+    def deterministic_deformation(positions, time_factor=1.0):
+        """
+        Apply a deterministic, structured deformation to positions.
+        The deformation maintains zero center of gravity.
+        
+        Args:
+            positions: Tensor of atom positions [num_atoms, 3]
+            time_factor: Factor to scale the deformation (0.0 to 1.0)
+            
+        Returns:
+            deformed_positions: Tensor of deformed positions
+            deformation: The deformation field applied (for training target)
+        """
+        # Calculate distance from origin for each atom
+        distances = torch.norm(positions, dim=1, keepdim=True)
+        
+        # Create a radial deformation field (expand/contract based on distance)
+        # Scale intensity based on time_factor
+        intensity = 0.3 * time_factor
+        
+        # Direction vectors for each atom (normalized positions)
+        directions = positions / (distances + 1e-8)
+        
+        # Apply the deformation - intensity varies with distance (sine wave pattern)
+        deformation = directions * (torch.sin(distances * 3.14159) * intensity)
+        
+        # Ensure deformation has zero center of gravity
+        deformation = center_gravity(deformation)
+        
+        # Apply deformation
+        deformed_positions = positions + deformation
+        
+        return deformed_positions, deformation
+
+    def train_transform(data: Data):
+        data.t = 0  # default
+
+        # Only use atom type features
+        data.x = data.x[:, :5].float()
+        
+        # Save the original positions for x0 prediction case
+        original_pos = data.pos.clone()
+
+        # randomly sample a t
+        t = random.randint(0, timesteps - 1)
+        time_factor = t / (timesteps - 1.0)
+        
+        # Create a copy of the data
+        noised_data = data.clone().detach_()
+        # noised_data = data.clone()
+        
+        # Apply deterministic deformation
+        deformed_positions, deformation = deterministic_deformation(
+            original_pos, time_factor
+        )
+        
+        # Set the transformed properties
+        noised_data.pos = deformed_positions
+        noised_data.ypos = deformation
+        noised_data.t = t
+        
+        # Store the timestep t in the data object so we can access it for logging
+        # Store as tensors so they will be properly batched
+        noised_data.time_step = torch.tensor([t], device=data.x.device)
+        # Also store normalized time (t/timesteps) for binning
+        noised_data.time_norm = torch.tensor([time_factor], device=data.x.device)
+
+        # insert time t into the node features
+        noised_data, time_vec = insert_t(noised_data, t, timesteps)
+
+        # set y_loc for hydragnn reasons
+        noised_data.y_loc = torch.tensor(
+            [0, 5, 8], dtype=torch.int64, device=data.x.device
+        ).unsqueeze(0)
+
+        # Create alphas similar to diffusion process
+        alphas = torch.linspace(1.0, 0.1, timesteps)
+        noised_data.alpha_t = alphas[t]
+
+        if predict_x0:
+            # For x0 prediction, the target is the original position
+            noised_data.ypos_original = deformation.clone()  # Save the original deformation for debugging
+            noised_data.y = torch.hstack([data.x, center_gravity(original_pos)])
+        else:
+            # For epsilon prediction, the target is the deformation
+            noised_data.y = torch.hstack([data.x, deformation])
+        
+        return noised_data
+
+    # Store attributes on the function for access in train_epoch
+    train_transform.predict_x0 = predict_x0
+    train_transform.deterministic = True
+    
+    return train_transform
 
 
 def insert_t(data: Data, t: int, T: int):
