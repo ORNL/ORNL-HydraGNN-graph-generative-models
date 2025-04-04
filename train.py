@@ -24,7 +24,6 @@ from src.utils.train_utils import train_model, get_train_transform, get_hydra_tr
 from src.utils.logging_utils import ModelLoggerHandler, configure_wandb
 from src.utils.data_utils import get_marg_dist, FullyConnectGraph
 
-from simple_model import SimpleGNN
 
 
 
