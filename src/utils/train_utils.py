@@ -243,9 +243,8 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
         )
 
         # get them another way:
-        # loss_pos = torch.nn.functional.mse_loss(outputs[1], batch.y[:,5:])
-        loss = loss_pos
-        loss_atom = torch.tensor(0)
+        loss = loss_pos+loss_atom
+        # loss_atom = torch.tensor(0)
         optimizer.step()
 
         # Backward pass and optimization
@@ -254,8 +253,7 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
         # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
         optimizer.step()
-        loss_metrics = {}
-        loss_metrics['pos_mse_loss'] = loss_pos
+
         # Accumulate losses
         epoch_loss += loss.item()
         epoch_pos_loss += loss_pos.item()
@@ -275,8 +273,6 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
             "pred_noise_norm": pred_noise_norm,
             "actual_noise_norm": actual_noise_norm,
             "noise_scale_ratio": noise_scale_ratio,
-            "pos_mse_loss": loss_metrics['pos_mse_loss'],
-            # "norm_constraint_loss": loss_metrics['norm_constraint_loss']
         }
         
         # Add current time information to batch logging if available
@@ -286,7 +282,7 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
             loss_components["time"] = avg_time
             
         logger_handler.log_batch(
-            loss, batch_idx, epoch, len(dataloader), "train", loss_components
+            loss, batch_count, epoch, len(dataloader), "train", loss_components
         )
     
     return epoch_loss, epoch_pos_loss, epoch_atom_loss, batch_count
@@ -337,11 +333,6 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
             )
             loss = loss_pos + loss_atom  # Combine the weighted losses
 
-            # loss_pos = torch.nn.functional.mse_loss(outputs[1], batch.y[:,5:]) # this is a very simple loss for testing. It works well. 
-            loss = loss_pos
-            loss_atom = torch.tensor(0)
-            loss_metrics = {}
-            loss_metrics['pos_mse_loss'] = loss_pos
             # Accumulate losses
             epoch_val_loss += loss.item()
             epoch_val_pos_loss += loss_pos.item()
@@ -360,7 +351,6 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
                 "pred_noise_norm": pred_noise_norm,
                 "actual_noise_norm": actual_noise_norm,
                 "noise_scale_ratio": noise_scale_ratio,
-                "pos_mse_loss": loss_metrics['pos_mse_loss'],
                 # "norm_constraint_loss": loss_metrics['norm_constraint_loss']
             }
             
@@ -372,7 +362,7 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
                 
             logger_handler.log_batch(
                 loss,
-                val_batch_idx,
+                batch_count_val,
                 epoch,
                 len(dataloader),
                 "val",
