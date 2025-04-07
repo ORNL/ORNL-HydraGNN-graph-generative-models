@@ -211,6 +211,7 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
         # Sample position noise from distribution
         # subtract center of gravity for position information
         pos_noise = center_gravity(torch.randn_like(dist_state['pos_mu']))
+        print(dist_state['pos_sigma'])
         pos_samples = dist_state['pos_mu'] + pos_noise * dist_state['pos_sigma']
 
         # create a new data entry with samples, set y to preds
@@ -220,8 +221,8 @@ class MarginalDiffusionProcess(EquivariantDiffusionProcess):
         data.pos = pos_samples
         data.ypos = pos_noise
         data.t = dist_state['t']
-        data.pos_mu = None
-        data.pos_sigma = None
+        data.pos_mu = dist_state['pos_mu']
+        data.pos_sigma = dist_state['pos_sigma']
         return data
     
     def prior_dist(self, state_dims: Union[Tensor, int], x_dim: int, pos_dim: int) -> Data:

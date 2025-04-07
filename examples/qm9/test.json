@@ -1,3 +1,4 @@
+
 {
     "Verbosity": {
         "level": 2
@@ -8,7 +9,7 @@
             "global_attn_engine": "",
             "global_attn_type": "",
             "global_attn_heads": "",
-            "model_type": "EGNN",
+            "mpnn_type": "EGNN",
             "radius": 1000,
             "max_neighbours": 500,
             "periodic_boundary_conditions": false,
@@ -35,8 +36,8 @@
             "output_names": ["atomic_identity", "pos"],
             "output_index": [0, 1],
             "output_dim": [5, 3],
-            "output_type": ["node","node"],
-            "type": ["node","node"],
+            "output_type": ["node","pos"],
+            "type": ["node","pos"],
             "denormalize_output": false,
             "dynamic_target": true
         },
