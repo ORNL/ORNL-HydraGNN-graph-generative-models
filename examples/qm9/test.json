@@ -21,12 +21,12 @@
             "input_dim": [6],
             "output_dim": [5,3],
             "pe_dim": 2,
-            "output_type": ["node","node"],
+            "output_type": ["node","pos"],
             "output_heads": {
                 "node": {
                     "num_headlayers": 2,
                     "dim_headlayers": [128,64],
-                    "type": "Identity"
+                    "type": "mlp"
                 }
             },
             "task_weights": [1.0, 1.0]
@@ -36,8 +36,8 @@
             "output_names": ["atomic_identity", "pos"],
             "output_index": [0, 1],
             "output_dim": [5, 3],
-            "output_type": ["node","node"],
-            "type": ["node","node"],
+            "output_type": ["node","pos"],
+            "type": ["node","pos"],
             "denormalize_output": false,
             "dynamic_target": true
         },

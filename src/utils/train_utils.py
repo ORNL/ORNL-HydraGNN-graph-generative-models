@@ -233,7 +233,6 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
         # Forward pass
         batch = batch.to(device)
         outputs = model(batch)
-        print(outputs[0].shape,outputs[1].shape)
 
         # outputs = postprocess_model_outputs(model(batch), batch, predict_x0=predict_x0)
         # then, compute the loss
@@ -569,9 +568,9 @@ def get_train_transform(dp: DiffusionProcess, predict_x0=False):
         noised_data, time_vec = insert_t(noised_data, t, dp.timesteps)
 
         # set y_loc for hydragnn reasons
-        noised_data.y_loc = torch.tensor(
-            [0, 5, 8], dtype=torch.int64, device=data.x.device
-        ).unsqueeze(0)
+        # noised_data.y_loc = torch.tensor(
+        #     [0, 5, 8], dtype=torch.int64, device=data.x.device
+        # ).unsqueeze(0)
 
         # Store the diffusion alpha for the current timestep (needed for x0 prediction)
         noised_data.alpha_t = dp.alphas[t]

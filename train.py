@@ -81,42 +81,24 @@ def train(args):
     # Make all graphs fully connected.
     dataset = [FullyConnectGraph()(data) for data in dataset]  # Apply to all graphs
     
-    # Store the transform function so we can apply it during training
-    #config["transform_function"] = train_tform
-    # datum = dataset[0]
-    # print(datum)
-    # print("X: ", datum.x)
-    # print("POS: ", datum.pos)
-    # print("EDGE: ", datum.edge_index)
-
-    # print("---------Diffused Version---------")
-    # datum = train_tform(datum)
-    # print(datum)
-    # print("Time: ", datum.t)
-    # print("X: ", datum.x)
-    # print("EDGE: ", datum.edge_index)
-    # #print("Y: ", datum.y)
-    # print("POS: ", datum.pos)
-    # print("YPOS: ", datum.ypos)
-    # print("Y_shape: ", datum.y.shape)
-
-    # TODO modify config to move Training outside of Neural Network
     # Split into train, validation, and test sets.
     train, val, test = hydragnn.preprocess.split_dataset(
         dataset, config["NeuralNetwork"]["Training"]["perc_train"], False
     )
-    # Create dataloaders for PyTorch training
-    # (
-    #     train_loader,
-    #     val_loader,
-    #     test_loader,
-    # ) = hydragnn.preprocess.create_dataloaders(
-    #     train, val, test, config["NeuralNetwork"]["Training"]["batch_size"]
-    # )
 
-    train_loader = DataLoader(dataset[:int(.7*args.samples)], batch_size=32, shuffle=True)
-    val_loader = DataLoader(dataset[int(.7*args.samples):], batch_size=32, shuffle=False)
-    test_loader = DataLoader(dataset[int(.7*args.samples):], batch_size=32, shuffle=False)
+    # Create dataloaders for PyTorch training
+    (
+        train_loader,
+        val_loader,
+        test_loader,
+    ) = hydragnn.preprocess.create_dataloaders(
+        train, val, test, config["NeuralNetwork"]["Training"]["batch_size"]
+    )
+
+    # train_loader = DataLoader(dataset[:int(.7*args.samples)], batch_size=32, shuffle=True)
+    # val_loader = DataLoader(dataset[int(.7*args.samples):], batch_size=32, shuffle=False)
+    # test_loader = DataLoader(dataset[int(.7*args.samples):], batch_size=32, shuffle=False)
+
     # Update the config with the dataloaders.
     config = config_utils.update_config(config, train_loader, val_loader, test_loader)
 
@@ -139,8 +121,6 @@ def train(args):
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=5, min_lr=1e-6
     )
-
-    # We'll use the diffusion_loss function imported from train_utils
 
     # Run training with the given model and dataset.
     config["NeuralNetwork"]["Training"]["num_epoch"] = 100
