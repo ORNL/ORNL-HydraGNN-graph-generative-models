@@ -33,7 +33,7 @@ def per_graph_mse_loss(outputs, targets, data):
     # Return the list of per-graph MSE losses
     return torch.mean(torch.tensor(per_graph_losses, requires_grad=True))
 
-def diffusion_loss(outputs, targets, pos_weight=1.0, atom_weight=0.0, predict_x0=False):
+def diffusion_loss(outputs, targets, pos_weight=1.0, atom_weight=1.0, predict_x0=False):
     """
     Loss function for graph diffusion models with norm constraint.
     Computes positional loss with norm constraint and atom type loss.
@@ -141,7 +141,6 @@ def diffusion_loss(outputs, targets, pos_weight=1.0, atom_weight=0.0, predict_x0
     
     return pos_loss, atom_loss, metrics
 
-
 def get_device():
     """
     Determine the appropriate device (MPS, CUDA, or CPU) for training.
@@ -234,17 +233,18 @@ def train_epoch(model, loss_fun, optimizer, dataloader, device, logger_handler, 
         # Forward pass
         batch = batch.to(device)
         outputs = model(batch)
+        print(outputs[0].shape,outputs[1].shape)
 
         # outputs = postprocess_model_outputs(model(batch), batch, predict_x0=predict_x0)
         # then, compute the loss
-        # loss_pos, loss_atom, loss_metrics = loss_fun(
-        #     outputs, 
-        #     (batch.y[:, :5], batch.y[:, 5:]),
-        #     predict_x0=predict_x0
-        # )
+        loss_pos, loss_atom, loss_metrics = loss_fun(
+            outputs, 
+            (batch.y[:, :5], batch.y[:, 5:]),
+            predict_x0=predict_x0
+        )
 
         # get them another way:
-        loss_pos = torch.nn.functional.mse_loss(outputs[1], batch.y[:,5:])
+        # loss_pos = torch.nn.functional.mse_loss(outputs[1], batch.y[:,5:])
         loss = loss_pos
         loss_atom = torch.tensor(0)
         optimizer.step()
@@ -331,14 +331,14 @@ def validate_epoch(model, loss_fun, dataloader, device, logger_handler, epoch, t
             batch = batch.to(device)
             # outputs = postprocess_model_outputs(model(batch), batch, predict_x0=predict_x0)
             outputs = model(batch)
-            # loss_pos, loss_atom, loss_metrics = loss_fun(
-            #     outputs, 
-            #     [batch.y[:, :5], batch.y[:, 5:]], 
-            #     predict_x0=predict_x0
-            # )
-            # loss = loss_pos + loss_atom  # Combine the weighted losses
+            loss_pos, loss_atom, loss_metrics = loss_fun(
+                outputs, 
+                [batch.y[:, :5], batch.y[:, 5:]], 
+                predict_x0=predict_x0
+            )
+            loss = loss_pos + loss_atom  # Combine the weighted losses
 
-            loss_pos = torch.nn.functional.mse_loss(outputs[1], batch.y[:,5:])
+            # loss_pos = torch.nn.functional.mse_loss(outputs[1], batch.y[:,5:]) # this is a very simple loss for testing. It works well. 
             loss = loss_pos
             loss_atom = torch.tensor(0)
             loss_metrics = {}
