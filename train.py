@@ -93,12 +93,13 @@ def train(args):
 
 
     # Update the config with the dataloaders.
+    # I've found that the output_dim sometimes get overwritten, depending
+    # on things that happen during dataloader construction. To surmount this, 
+    # I directly specify the output dimension. 
     config = config_utils.update_config(config, train_loader, val_loader, test_loader)
-
-    print(config['NeuralNetwork']['Variables_of_interest']['output_dim'])
-    print(config['NeuralNetwork']['Architecture']['output_dim'])
     config['NeuralNetwork']['Architecture']['output_dim'] = [5,3]
-    # Save the config with all the updated stuff and initialize wandb
+
+    # Save the config with all the updated values and initialize wandb
     wandb_run = configure_wandb(project_name="graph diffusion model", config=config)
 
     # Create the model from the config specifications
@@ -109,14 +110,12 @@ def train(args):
     
     # Define training optimizer and scheduler
     learning_rate = config["NeuralNetwork"]["Training"]["Optimizer"]["learning_rate"]
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
-    #optimizer =  torch.optim.SGD(model.parameters(), lr=1e-4, momentum=0.9)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=5, min_lr=1e-6
     )
 
     # Run training with the given model and dataset.
-    config["NeuralNetwork"]["Training"]["num_epoch"] = 100
     model = train_model(
         model,
         diffusion_loss,
@@ -137,6 +136,7 @@ if __name__ == "__main__":
 
     parser.add_argument("-s", "--samples", default=100, type=int)
     parser.add_argument("-ds", "--diffusion_steps", default=100, type=int)
+    parser.add_argument("-dp", "--diffusion_equivariant", default="equivariant", type=str)
     parser.add_argument(
         "-c", "--config_path", type=str, default="examples/qm9/test.json"
     )
