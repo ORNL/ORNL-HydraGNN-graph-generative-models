@@ -8,13 +8,9 @@ from rdkit import Chem
 from torch_geometric.data import Data, Batch, DataLoader
 
 import hydragnn
-# from hydragnn.utils.print import setup_log
 from hydragnn.utils.input_config_parsing import config_utils
-# from hydragnn.utils import config_utils
 from hydragnn.utils.distributed import setup_ddp
-# from hydragnn.utils.distributed import setup_ddp, get_distributed_model
 from hydragnn.preprocess.graph_samples_checks_and_updates import update_predicted_values
-# from hydragnn.preprocess import update_predicted_values
 
 from src.utils import diffusion_utils as du
 from src.processes.diffusion import DiffusionProcess
@@ -95,9 +91,6 @@ def train(args):
         train, val, test, config["NeuralNetwork"]["Training"]["batch_size"]
     )
 
-    # train_loader = DataLoader(dataset[:int(.7*args.samples)], batch_size=32, shuffle=True)
-    # val_loader = DataLoader(dataset[int(.7*args.samples):], batch_size=32, shuffle=False)
-    # test_loader = DataLoader(dataset[int(.7*args.samples):], batch_size=32, shuffle=False)
 
     # Update the config with the dataloaders.
     config = config_utils.update_config(config, train_loader, val_loader, test_loader)
