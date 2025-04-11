@@ -194,18 +194,6 @@ class ModelLoggerHandler:
             checkpoint_path,
         )
 
-        # Upload to wandb if available
-        # if isinstance(self.logger, type(wandb.run)):
-        #     artifact = wandb.Artifact(
-        #         name=f'{self.model_name}_{"best" if is_best else "checkpoint"}',
-        #         type='model',
-        #         description=f'{"Best model" if is_best else "Model"} checkpoint from epoch {epoch+1}'
-        #     )
-        # artifact.add_file(checkpoint_path)
-        # self.logger.log_artifact(artifact)
-        # Clean up local checkpoint
-        # os.remove(checkpoint_name)
-
     def handle_epoch_end(self, epoch, model, optimizer, avg_loss):
         """Handle end of epoch operations (logging and saving)."""
         # Save based on frequency
