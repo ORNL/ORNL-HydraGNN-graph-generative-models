@@ -42,10 +42,14 @@ def train(args):
     voi = config["NeuralNetwork"]["Variables_of_interest"]
 
     # Create a MarginalDiffusionProcess object.
-    # dp = MarginalDiffusionProcess(
-    #     args.diffusion_steps, marg_dist=get_marg_dist(root_path=args.data_path)
-    # )
-    dp = EquivariantDiffusionProcess(args.diffusion_steps)
+    if args.dp == 'marginal':
+         dp = MarginalDiffusionProcess(
+             args.diffusion_steps, marg_dist=get_marg_dist(root_path=args.data_path)
+         )
+    elif args.dp == 'equivariant':
+        dp = EquivariantDiffusionProcess(args.diffusion_steps)
+    else:
+        print("Only marginal and equivariant diffusion processes are supported.")
 
     # Create the appropriate training transform function
     if args.deterministic:
