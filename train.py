@@ -41,7 +41,7 @@ def train(args):
     world_size, world_rank = setup_ddp()
     voi = config["NeuralNetwork"]["Variables_of_interest"]
 
-    # Create a MarginalDiffusionProcess object.
+    # Create a DiffusionProcess object.
     if args.dp == 'marginal':
          dp = MarginalDiffusionProcess(
              args.diffusion_steps, marg_dist=get_marg_dist(root_path=args.data_path)
@@ -51,15 +51,7 @@ def train(args):
     else:
         print("Only marginal and equivariant diffusion processes are supported.")
 
-    # Create the appropriate training transform function
-    if args.deterministic:
-        # Use deterministic deformation transform
-        train_tform = get_deterministic_transform(args.diffusion_steps, predict_x0=args.predict_x0)
-        print("Using deterministic deformation instead of random noise")
-    else:
-        # Use regular diffusion transform
-        train_tform = get_train_transform(dp, predict_x0=args.predict_x0)
-    
+    train_tform = get_train_transform(dp, predict_x0=args.predict_x0)
     hydra_transform = get_hydra_transform()
     
     # Print prediction mode
@@ -69,8 +61,14 @@ def train(args):
         print("Training in epsilon-prediction mode: model will predict noise/deformation")
 
     # Load the QM9 dataset from torch WITHOUT transform (we'll apply it during training)
-    # This prevents caching of transformed data with fixed noise
-    dataset = torch_geometric.datasets.QM9(root=args.data_path, transform=hydra_transform)
+    if os.path.splitext(args.data_path)[1] == '.bp':
+        opt = {"preload": False, "shmem": shmem, "ddstore": False, "var_config": model.module.var_config}
+        comm = MPI.COMM_WORLD
+        trainset = AdiosDataset(args.data_path, "trainset", comm, **opt)
+        valset = AdiosDataset(args.data_path, "valset", comm, **opt)
+        testset = AdiosDataset(args.data_path, "testset", comm, **opt)
+    else:  # any data_path that doesn't have .bp is treated as QM9. 
+        dataset = torch_geometric.datasets.QM9(root=args.data_path, transform=hydra_transform)
 
     # Limit the number of samples if specified.
     if args.samples != None:
@@ -140,13 +138,12 @@ if __name__ == "__main__":
 
     parser.add_argument("-s", "--samples", default=100, type=int)
     parser.add_argument("-ds", "--diffusion_steps", default=100, type=int)
-    parser.add_argument("-dp", "--diffusion_equivariant", default="equivariant", type=str)
+    parser.add_argument("-dp", "--diffusion_process", default="equivariant", type=str)
     parser.add_argument(
         "-c", "--config_path", type=str, default="examples/qm9/test.json"
     )
     parser.add_argument("-d", "--data_path", type=str, default="examples/qm9/dataset")
     parser.add_argument("--predict_x0", action="store_true", help="Train model to predict original positions (x0) instead of noise")
-    parser.add_argument("--deterministic", action="store_true", help="Use deterministic deformation instead of random noise")
 
     # Store the arguments in args.
     args = parser.parse_args()
