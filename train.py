@@ -16,11 +16,16 @@ from src.utils import diffusion_utils as du
 from src.processes.diffusion import DiffusionProcess
 from src.processes.equivariant_diffusion import EquivariantDiffusionProcess
 from src.processes.marginal_diffusion import MarginalDiffusionProcess
-from src.utils.train_utils import train_model, get_train_transform, get_hydra_transform, get_deterministic_transform, insert_t, diffusion_loss
+from src.utils.train_utils import (
+    train_model,
+    get_train_transform,
+    get_hydra_transform,
+    get_deterministic_transform,
+    insert_t,
+    diffusion_loss,
+)
 from src.utils.logging_utils import ModelLoggerHandler, configure_wandb
 from src.utils.data_utils import get_marg_dist, FullyConnectGraph
-
-
 
 
 def train(args):
@@ -42,33 +47,42 @@ def train(args):
     voi = config["NeuralNetwork"]["Variables_of_interest"]
 
     # Create a DiffusionProcess object.
-    if args.dp == 'marginal':
-         dp = MarginalDiffusionProcess(
-             args.diffusion_steps, marg_dist=get_marg_dist(root_path=args.data_path)
-         )
-    elif args.dp == 'equivariant':
+    if args.diffusion_process == "marginal":
+        dp = MarginalDiffusionProcess(
+            args.diffusion_steps, marg_dist=get_marg_dist(root_path=args.data_path)
+        )
+    elif args.diffusion_process == "equivariant":
         dp = EquivariantDiffusionProcess(args.diffusion_steps)
     else:
         print("Only marginal and equivariant diffusion processes are supported.")
 
     train_tform = get_train_transform(dp, predict_x0=args.predict_x0)
     hydra_transform = get_hydra_transform()
-    
+
     # Print prediction mode
     if args.predict_x0:
         print("Training in x0-prediction mode: model will predict original positions")
     else:
-        print("Training in epsilon-prediction mode: model will predict noise/deformation")
+        print(
+            "Training in epsilon-prediction mode: model will predict noise/deformation"
+        )
 
     # Load the QM9 dataset from torch WITHOUT transform (we'll apply it during training)
-    if os.path.splitext(args.data_path)[1] == '.bp':
-        opt = {"preload": False, "shmem": shmem, "ddstore": False, "var_config": model.module.var_config}
+    if os.path.splitext(args.data_path)[1] == ".bp":
+        opt = {
+            "preload": False,
+            "shmem": shmem,
+            "ddstore": False,
+            "var_config": model.module.var_config,
+        }
         comm = MPI.COMM_WORLD
         trainset = AdiosDataset(args.data_path, "trainset", comm, **opt)
         valset = AdiosDataset(args.data_path, "valset", comm, **opt)
         testset = AdiosDataset(args.data_path, "testset", comm, **opt)
-    else:  # any data_path that doesn't have .bp is treated as QM9. 
-        dataset = torch_geometric.datasets.QM9(root=args.data_path, transform=hydra_transform)
+    else:  # any data_path that doesn't have .bp is treated as QM9.
+        dataset = torch_geometric.datasets.QM9(
+            root=args.data_path, transform=hydra_transform
+        )
 
     # Limit the number of samples if specified.
     if args.samples != None:
@@ -78,7 +92,7 @@ def train(args):
 
     # Make all graphs fully connected.
     dataset = [FullyConnectGraph()(data) for data in dataset]  # Apply to all graphs
-    
+
     # Split into train, validation, and test sets.
     train, val, test = hydragnn.preprocess.split_dataset(
         dataset, config["NeuralNetwork"]["Training"]["perc_train"], False
@@ -93,13 +107,12 @@ def train(args):
         train, val, test, config["NeuralNetwork"]["Training"]["batch_size"]
     )
 
-
     # Update the config with the dataloaders.
     # I've found that the output_dim sometimes get overwritten, depending
-    # on things that happen during dataloader construction. To surmount this, 
-    # I directly specify the output dimension. 
+    # on things that happen during dataloader construction. To surmount this,
+    # I directly specify the output dimension.
     config = config_utils.update_config(config, train_loader, val_loader, test_loader)
-    config['NeuralNetwork']['Architecture']['output_dim'] = [5,3]
+    config["NeuralNetwork"]["Architecture"]["output_dim"] = [5, 3]
 
     # Save the config with all the updated values and initialize wandb
     wandb_run = configure_wandb(project_name="graph diffusion model", config=config)
@@ -109,7 +122,7 @@ def train(args):
         config=config["NeuralNetwork"],
         verbosity=verbosity,
     )
-    
+
     # Define training optimizer and scheduler
     learning_rate = config["NeuralNetwork"]["Training"]["Optimizer"]["learning_rate"]
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
@@ -127,7 +140,7 @@ def train(args):
         config["NeuralNetwork"]["Training"]["num_epoch"],
         logger=wandb_run,
         scheduler=scheduler,
-        train_transform=train_tform
+        train_transform=train_tform,
     )
 
 
@@ -143,8 +156,13 @@ if __name__ == "__main__":
         "-c", "--config_path", type=str, default="examples/qm9/test.json"
     )
     parser.add_argument("-d", "--data_path", type=str, default="examples/qm9/dataset")
-    parser.add_argument("--predict_x0", action="store_true", help="Train model to predict original positions (x0) instead of noise")
+    parser.add_argument(
+        "--predict_x0",
+        action="store_true",
+        help="Train model to predict original positions (x0) instead of noise",
+    )
 
     # Store the arguments in args.
     args = parser.parse_args()
+    print(args)
     train(args)

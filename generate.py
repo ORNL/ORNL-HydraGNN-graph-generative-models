@@ -4,16 +4,19 @@ import torch
 import hydragnn
 from hydragnn.utils.distributed import get_distributed_model
 
-
 from src.utils import diffusion_utils as du
-from src.processes.marginal_diffusion import MarginalDiffusionProcess
-from src.utils.train_utils import insert_t, postprocess_model_outputs
+from src.utils import data_utils as da
+from src.processes.marginal_diffusion import (
+    MarginalDiffusionProcess,
+    EquivariantDiffusionProcess,
+)
+from src.utils.train_utils import insert_t
 
 
 def pred_fn(model, data, dp):
     data_tx, _ = insert_t(data, data.t, dp.timesteps)
     model.eval()
-    out = postprocess_model_outputs(model(data_tx), data)
+    out = model(data_tx)
     atom_ident_noise, atom_pos_noise = out[0], out[1]
     noise_data = data.clone().detach_()
     noise_data.x = atom_ident_noise
@@ -59,9 +62,15 @@ def generate(args):
     device = hydragnn.utils.distributed.get_device()
 
     # setup diffusion process
-    dp = MarginalDiffusionProcess(
-        args.diffusion_steps, marg_dist=du.get_marg_dist(root_path=args.data_path)
-    )
+    if args.diffusion_process == "marginal":
+        dp = MarginalDiffusionProcess(
+            args.diffusion_steps, marg_dist=da.get_marg_dist(root_path=args.data_path)
+        )
+    elif args.diffusion_process == "equivariant":
+        dp = EquivariantDiffusionProcess(args.diffusion_steps)
+    else:
+        print("Only marginal and equivariant diffusion processes are supported.")
+        return
 
     # Define prior distribution for the generative model
     prior_dist_state = dp.prior_dist(torch.randint(5, 20, (args.num_gen,)), 5, 3).to(
@@ -80,8 +89,8 @@ def generate(args):
     for i, gd in enumerate(gen_data_list):
         # postprocess by subtracting off CoM
         gd.pos = gd.pos - gd.pos.mean(dim=0, keepdim=True)
-        out_path = os.path.join("models", "test", "structures", f"gen_{i}.pdb")
-        du.write_pdb_file(gd, out_path)
+        out_path = os.path.join(args.output_path, f"gen_{i}.pdb")
+        da.write_pdb_file(gd, out_path)
 
 
 if __name__ == "__main__":
@@ -94,6 +103,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("-ds", "--diffusion_steps", type=int, default=100)
     parser.add_argument("-l", "--run_name", type=str, default="test")
+    parser.add_argument("-dp", "--diffusion_process", default="equivariant", type=str)
+    parser.add_argument("-op", "--output_path", default=os.path.join("tests","structures"), type=str)
     # parser.add_argument("-m", "--model", type=str, help='path to the trained model' )
 
     # Store the arguments in args.

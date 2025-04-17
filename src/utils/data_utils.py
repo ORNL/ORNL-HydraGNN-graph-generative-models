@@ -3,6 +3,7 @@ import torch_geometric
 import os
 
 from torch_geometric.transforms import BaseTransform
+from rdkit import Chem
 
 class FullyConnectGraph(BaseTransform):
     def __call__(self, data):
